@@ -15,6 +15,9 @@ class DailyGoal extends Model
         'user_id',
         'kpi_id',
         'is_completed',
+        'input_type',
+        'order',
+        'evidence_required',
     ];
 
     public function user(): BelongsTo

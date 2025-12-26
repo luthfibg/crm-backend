@@ -32,6 +32,7 @@ class UserController extends Controller
             'phone_number' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:255',
             'date_of_birth' => 'nullable|date',
+            'role' => 'in:administrator,sales,presales,telesales',
             'points' => 'nullable|integer',
             'level' => 'nullable|string|max:100',
             'bio' => 'nullable|string|max:500',
