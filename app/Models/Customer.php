@@ -17,6 +17,9 @@ class Customer extends Model
         'institution',
         'phone_number',
         'notes',
+        'current_kpi_id',
+        'status',
+        'status_changed_at',
     ];
 
     public function user(): BelongsTo {
@@ -27,7 +30,15 @@ class Customer extends Model
         return $this->belongsTo(KPI::class);
     }
 
+    public function currentKpi(): BelongsTo {
+        return $this->belongsTo(KPI::class, 'current_kpi_id');
+    }
+
     public function progresses(): HasMany {
         return $this->hasMany(Progress::class);
     }
+
+    protected $casts = [
+        'status_changed_at' => 'datetime',
+    ];
 }

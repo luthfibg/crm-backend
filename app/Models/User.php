@@ -7,11 +7,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -71,16 +72,22 @@ class User extends Authenticatable
         return $this->hasMany(Progress::class);
     }
 
-    protected static function booted()
-{
-    static::updating(function ($model) {
-        if ($model->isDirty('email')) {
-            // cancel the change by reverting to the original value
-            // $model->email = $model->getOriginal('email');
+    public function kpis()
+    {
+        // Sales can have many kpi's - pivot table medium
+        return $this->belongsToMany(Kpi::class, 'kpi_user')->withTimestamps();
+    }
 
-            // throw an exception to prevent the update
-            abort(403, 'Kolom email tidak boleh diubah.');
-        }
-    });
-}
+    protected static function booted()
+    {
+        static::updating(function ($model) {
+            if ($model->isDirty('email')) {
+                // cancel the change by reverting to the original value
+                // $model->email = $model->getOriginal('email');
+
+                // throw an exception to prevent the update
+                abort(403, 'Kolom email tidak boleh diubah.');
+            }
+        });
+    }
 }

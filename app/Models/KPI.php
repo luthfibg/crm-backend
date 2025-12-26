@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\Customer;
 use App\Models\DailyGoal;
+use App\Models\User;
 
 class KPI extends Model
 {
@@ -15,8 +16,9 @@ class KPI extends Model
         'code',
         'description',
         'weight_point',
-        'total_daily_goals',
         'type',
+        'sequence',
+        'note'
     ];
 
     public function customers(): HasMany {
@@ -25,5 +27,11 @@ class KPI extends Model
 
     public function dailyGoals(): HasMany {
         return $this->hasMany(DailyGoal::class);
+    }
+
+    public function users()
+    {
+        // One KPI can be owned by many sales - pivot table
+        return $this->belongsToMany(User::class, 'kpi_user')->withTimestamps();
     }
 }

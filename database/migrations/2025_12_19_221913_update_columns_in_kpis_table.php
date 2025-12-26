@@ -11,30 +11,29 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('key_performance_indicators', function (Blueprint $table) {
-            if (Schema::hasColumn('key_performance_indicators', 'user_id')) {
+        Schema::table('kpis', function (Blueprint $table) {
+            if (Schema::hasColumn('kpis', 'user_id')) {
                 $table->dropForeign(['user_id']);
                 $table->dropColumn('user_id');
             }
 
-            if (Schema::hasColumn('key_performance_indicators', 'name')) {
+            if (Schema::hasColumn('kpis', 'name')) {
                 $table->dropColumn('name');
             }
-            if (Schema::hasColumn('key_performance_indicators', 'target_value')) {
+            if (Schema::hasColumn('kpis', 'target_value')) {
                 $table->dropColumn('target_value');
             }
-            if (Schema::hasColumn('key_performance_indicators', 'actual_value')) {
+            if (Schema::hasColumn('kpis', 'actual_value')) {
                 $table->dropColumn('actual_value');
             }
-            if (Schema::hasColumn('key_performance_indicators', 'measurement_date')) {
+            if (Schema::hasColumn('kpis', 'measurement_date')) {
                 $table->dropColumn('measurement_date');
             }
 
             $table->string('code')->after('id');
             $table->text('description')->after('code')->change();
             $table->integer('weight_point')->after('description');
-            $table->integer('total_daily_goals')->after('weight_point');
-            $table->enum('type', ['cycle', 'periodic', 'achievement'])->after('total_daily_goals')->default('cycle');
+            $table->enum('type', ['cycle', 'periodic', 'achievement'])->after('weight_point')->default('cycle');
         });
     }
 
@@ -43,21 +42,21 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('key_performance_indicators', function (Blueprint $table) {
+        Schema::table('kpis', function (Blueprint $table) {
             // Kembalikan kolom yang dihapus (sesuaikan dengan tipe semula)
-            if (! Schema::hasColumn('key_performance_indicators', 'name')) {
+            if (! Schema::hasColumn('kpis', 'name')) {
                 $table->string('name')->after('id');
             }
-            if (! Schema::hasColumn('key_performance_indicators', 'target_value')) {
+            if (! Schema::hasColumn('kpis', 'target_value')) {
                 $table->decimal('target_value', 15, 2);
             }
-            if (! Schema::hasColumn('key_performance_indicators', 'actual_value')) {
+            if (! Schema::hasColumn('kpis', 'actual_value')) {
                 $table->decimal('actual_value', 15, 2)->default(0);
             }
-            if (! Schema::hasColumn('key_performance_indicators', 'measurement_date')) {
+            if (! Schema::hasColumn('kpis', 'measurement_date')) {
                 $table->date('measurement_date');
             }
-            if (! Schema::hasColumn('key_performance_indicators', 'user_id')) {
+            if (! Schema::hasColumn('kpis', 'user_id')) {
                 $table->foreignId('user_id')->constrained()->onDelete('cascade');
             }
         });
