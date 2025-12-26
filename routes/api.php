@@ -15,11 +15,11 @@ Route::get('/user', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::resource('customers', CustomerController::class);
-    // ... other routes still in process
+    Route::resource('users', UserController::class);
+    Route::resource('kpis', KPIController::class);
+    Route::resource('daily-goals', DailyGoalController::class);
+    // additional helper route to fetch daily goals by user + kpi
+    Route::get('daily-goals/user/{user}/kpi/{kpi}', [DailyGoalController::class, 'byUserKpi'])->name('daily-goals.byUserKpi');
+    Route::resource('badges', BadgeController::class);
+    Route::resource('progress-updates', ProgressController::class);
 });
-
-Route::resource('users', UserController::class);
-Route::resource('kpis', KPIController::class);
-Route::resource('daily-goals', DailyGoalController::class);
-Route::resource('badges', BadgeController::class);
-Route::resource('progress-updates', ProgressController::class);

@@ -19,11 +19,18 @@ class DailyGoalController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
 
-        // customers milik sales beserta KPI
-        $customers = $user->customers()->with('kpi')->get();
+        // Administrator can view all customers; other roles only their own
+        if ($user->role === 'administrator') {
+            $customers = \App\Models\Customer::with('kpi')->get();
+        } else {
+            $customers = $user->customers()->with('kpi')->get();
+        }
 
-        // hitung jumlah daily goals yang di-assign per KPI (sekali query)
+        // hitung jumlah daily goals yang di-assign per KPI (sekali query) - for this user
         $assignedCounts = DailyGoal::where('user_id', $user->id)
             ->selectRaw('kpi_id, COUNT(*) as total')
             ->groupBy('kpi_id')
@@ -53,7 +60,7 @@ class DailyGoalController extends Controller
             $actualPoint = ($percent / 100) * ($kpi->weight_point ?? 0);
 
             $dailyGoals = $kpiId
-                ? DailyGoal::where('user_id', $user->id)->where('kpi_id', $kpiId)->get(['id','description','is_completed'])
+                ? DailyGoal::where('user_id', $user->id)->where('kpi_id', $kpiId)->get(['id','description','input_type','order','evidence_required'])
                 : collect();
 
             return [
@@ -93,6 +100,9 @@ class DailyGoalController extends Controller
             'daily_goals' => 'required|array|min:1',
             'daily_goals.*.description' => 'required|string|max:255',
             'daily_goals.*.is_completed' => 'sometimes|boolean',
+            'daily_goals.*.input_type' => 'sometimes|string|in:none,text,phone,file,image,video',
+            'daily_goals.*.order' => 'sometimes|integer',
+            'daily_goals.*.evidence_required' => 'sometimes|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -119,6 +129,9 @@ class DailyGoalController extends Controller
                     'user_id' => $user->id,
                     'kpi_id' => $kpi->id,
                     'is_completed' => $dg['is_completed'] ?? false,
+                    'input_type' => $dg['input_type'] ?? 'none',
+                    'order' => $dg['order'] ?? null,
+                    'evidence_required' => $dg['evidence_required'] ?? false,
                 ]);
             }
 
@@ -144,7 +157,29 @@ class DailyGoalController extends Controller
      */
     public function show(string $id)
     {
-        //
+        // not used right now
+    }
+
+    /**
+     * Get all daily goals for a given user and kpi.
+     */
+    public function byUserKpi(Request $request, $userId, $kpiId)
+    {
+        $actor = $request->user();
+        if (! $actor) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // allow administrator, sales_manager, or the user themselves
+        if (! in_array($actor->role, ['administrator', 'sales_manager']) && $actor->id != (int)$userId) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        $dailyGoals = DailyGoal::where('user_id', $userId)
+            ->where('kpi_id', $kpiId)
+            ->get(['id','description','input_type','order','evidence_required']);
+
+        return response()->json(['data' => $dailyGoals]);
     }
 
     /**
