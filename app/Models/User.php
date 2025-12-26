@@ -75,7 +75,8 @@ class User extends Authenticatable
     public function kpis()
     {
         // Sales can have many kpi's - pivot table medium
-        return $this->belongsToMany(Kpi::class, 'kpi_user')->withTimestamps();
+        // Explicit pivot keys to avoid incorrect snake-casing for class name "KPI"
+        return $this->belongsToMany(\App\Models\KPI::class, 'kpi_user', 'user_id', 'kpi_id')->withTimestamps();
     }
 
     protected static function booted()

@@ -32,6 +32,7 @@ class KPI extends Model
     public function users()
     {
         // One KPI can be owned by many sales - pivot table
-        return $this->belongsToMany(User::class, 'kpi_user')->withTimestamps();
+        // Explicit pivot keys to ensure pivot uses kpi_id and user_id
+        return $this->belongsToMany(User::class, 'kpi_user', 'kpi_id', 'user_id')->withTimestamps();
     }
 }
