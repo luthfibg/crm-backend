@@ -13,8 +13,10 @@ class Customer extends Model
     protected $fillable = [
         'user_id',
         'kpi_id',
-        'name',
+        'pic',
         'institution',
+        'position',
+        'email',
         'phone_number',
         'notes',
         'current_kpi_id',

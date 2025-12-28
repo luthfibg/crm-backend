@@ -45,8 +45,10 @@ class CustomerController extends Controller
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|integer',
             'kpi_id' => 'required|integer',
-            'name' => 'required|string|max:255',
+            'pic' => 'required|string|max:255',
             'institution' => 'required|string',
+            'position' => 'nullable|string',
+            'email' => 'nullable|email',
             'phone_number' => 'required',
             'notes' => 'nullable'
         ]);
@@ -123,8 +125,10 @@ class CustomerController extends Controller
     public function update(Request $request, string $id)
     {
          $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+            'pic' => 'required|string|max:255',
             'institution' => 'required|string',
+            'position' => 'nullable|string',
+            'email' => 'nullable|email',
             'phone_number' => 'required',
             'notes' => 'nullable'
         ]);
