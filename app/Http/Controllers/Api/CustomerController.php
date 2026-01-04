@@ -62,38 +62,19 @@ class CustomerController extends Controller
         }
 
         $data = $validator->validate();
-
-        // Set initial CRM status and current KPI pointer for new customer
         $data['current_kpi_id'] = 1;
         $data['status'] = 'New';
         $data['status_changed_at'] = now();
 
         $customer = Customer::create($data);
 
-        // Attach KPI id 1 to the user (if not already attached) so the sales has the KPI active
         $user = User::find($data['user_id']);
-        $createdDailyGoal = null;
         if ($user) {
-            $kpi1 = KPI::find(1);
-            if ($kpi1) {
-                $user->kpis()->syncWithoutDetaching([1]);
-
-                // Create an auto-generated daily goal for KPI #1 assigned to the sales
-                $createdDailyGoal = DailyGoal::create([
-                    'description' => "Auto-generated goal for KPI {$kpi1->code} - customer {$customer->name}",
-                    'user_id' => $user->id,
-                    'kpi_id' => $kpi1->id,
-                    'is_completed' => false,
-                ]);
-            }
+            // Pastikan User terhubung ke KPI 1
+            $user->kpis()->syncWithoutDetaching([1]);
         }
 
-        $response = ['customer' => $customer];
-        if ($createdDailyGoal) {
-            $response['daily_goal'] = $createdDailyGoal;
-        }
-
-        return response()->json($response, 201);
+        return response()->json(['customer' => $customer], 201);
     }
 
     /**

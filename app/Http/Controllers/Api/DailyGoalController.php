@@ -19,24 +19,23 @@ class DailyGoalController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        if (! $user) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
+        if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
 
-        // Administrator can view all customers; other roles only their own
+        // 1. Ambil customer
         if ($user->role === 'administrator') {
             $customers = \App\Models\Customer::with('kpi')->get();
         } else {
             $customers = $user->customers()->with('kpi')->get();
         }
 
-        // hitung jumlah daily goals yang di-assign per KPI (sekali query) - for this user
+        // 2. Hitung jumlah daily goals per KPI
         $assignedCounts = DailyGoal::where('user_id', $user->id)
+            ->where('description', 'NOT LIKE', 'Auto-generated%')
             ->selectRaw('kpi_id, COUNT(*) as total')
             ->groupBy('kpi_id')
             ->pluck('total', 'kpi_id');
 
-        // hitung completed per (customer, kpi) (misal: time_completed != null)
+        // 3. Ambil data completed per (customer, kpi)
         $completedRows = Progress::where('user_id', $user->id)
             ->whereNotNull('time_completed')
             ->whereIn('customer_id', $customers->pluck('id'))
@@ -44,28 +43,69 @@ class DailyGoalController extends Controller
             ->groupBy('kpi_id', 'customer_id')
             ->get();
 
-        // group hasil completed untuk lookup cepat
         $completedByCustomer = $completedRows->groupBy('customer_id')->map(function($g) {
             return $g->keyBy('kpi_id')->map(fn($r) => (int)$r->completed);
         });
 
         $result = $customers->map(function($customer) use ($user, $assignedCounts, $completedByCustomer) {
-            $kpi = $customer->kpi;
-            $kpiId = $kpi->id ?? null;
+            $currentKpi = $customer->kpi;
+            $currentKpiId = $customer->current_kpi_id;
 
-            $assigned = $kpiId ? ($assignedCounts[$kpiId] ?? 0) : 0;
-            $completedCount = $completedByCustomer[$customer->id][$kpiId] ?? 0;
+            // ⭐ BAGIAN BARU: Ambil semua KPI yang sudah dilewati (completed 100%)
+            $allKpis = KPI::where('type', 'cycle')
+                ->where('sequence', '<=', $currentKpi->sequence ?? 1)
+                ->orderBy('sequence', 'asc')
+                ->get();
 
-            $percent = $assigned ? min(100, round(($completedCount / $assigned) * 100, 2)) : 0;
-            $actualPoint = ($percent / 100) * ($kpi->weight_point ?? 0);
+            $kpiProgress = $allKpis->map(function($kpi) use ($user, $customer, $assignedCounts, $completedByCustomer, $currentKpiId) {
+                $assigned = $assignedCounts[$kpi->id] ?? 0;
+                $completedCount = $completedByCustomer[$customer->id][$kpi->id] ?? 0;
+                $percent = $assigned > 0 ? min(100, round(($completedCount / $assigned) * 100, 2)) : 0;
 
-            $dailyGoals = $kpiId
-                ? DailyGoal::where('user_id', $user->id)->where('kpi_id', $kpiId)->get(['id','description','input_type','order','evidence_required'])
-                : collect();
+                return [
+                    'kpi_id' => $kpi->id,
+                    'kpi_code' => $kpi->code,
+                    'kpi_description' => $kpi->description,
+                    'assigned_count' => (int) $assigned,
+                    'completed_count' => (int) $completedCount,
+                    'percent' => (float) $percent,
+                    'is_current' => $kpi->id === $currentKpiId,
+                    'is_completed' => $percent >= 100,
+                ];
+            });
+
+            // Stats untuk KPI current saja
+            $assigned = $currentKpiId ? ($assignedCounts[$currentKpiId] ?? 0) : 0;
+            $completedCount = $completedByCustomer[$customer->id][$currentKpiId] ?? 0;
+            $percent = $assigned > 0 ? min(100, round(($completedCount / $assigned) * 100, 2)) : 0;
+            $actualPoint = ($percent / 100) * ($currentKpi->weight_point ?? 0);
+
+            // Daily goals untuk KPI current
+            $dailyGoals = $currentKpiId
+                ? DailyGoal::where('user_id', $user->id)
+                    ->where('kpi_id', $currentKpiId)
+                    ->where('description', 'NOT LIKE', 'Auto-generated%')
+                    ->get(['id','description','input_type','order','evidence_required'])
+                    ->map(function($goal) use ($customer) {
+                        $isDone = Progress::where('daily_goal_id', $goal->id)
+                            ->where('customer_id', $customer->id)
+                            ->whereNotNull('time_completed')
+                            ->exists();
+                        $goal->is_completed = $isDone;
+                        return $goal;
+                    }) : collect();
 
             return [
-                'customer' => $customer->only(['id','name','institution']),
-                'kpi' => $kpi ? $kpi->only(['id','code','description','weight_point']) : null,
+                'customer' => [
+                    'id' => $customer->id,
+                    'pic' => $customer->pic,
+                    'institution' => $customer->institution,
+                    'status' => $customer->status,
+                    'email' => $customer->email,
+                    'phone' => $customer->phone_number,
+                ],
+                'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
+                'kpi_progress_history' => $kpiProgress, // ⭐ DATA BARU
                 'daily_goals' => $dailyGoals,
                 'stats' => [
                     'assigned_count' => (int) $assigned,
