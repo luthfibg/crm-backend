@@ -6,12 +6,15 @@ use App\Http\Controllers\Api\DailyGoalController;
 use App\Http\Controllers\Api\KPIController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\AuthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
+
+Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::resource('customers', CustomerController::class);
@@ -21,5 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // additional helper route to fetch daily goals by user + kpi
     Route::get('daily-goals/user/{user}/kpi/{kpi}', [DailyGoalController::class, 'byUserKpi'])->name('daily-goals.byUserKpi');
     Route::resource('badges', BadgeController::class);
-    Route::resource('progress-updates', ProgressController::class);
+    Route::resource('progress', ProgressController::class);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/progress/submit', [ProgressController::class, 'store']);
 });

@@ -29,160 +29,152 @@ class ProgressController extends Controller
     public function store(Request $request)
     {
         $actor = $request->user();
-        if (! $actor) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
-
+        
         $validator = Validator::make($request->all(), [
             'daily_goal_id' => 'required|integer|exists:daily_goals,id',
             'customer_id' => 'required|integer|exists:customers,id',
-            // evidence can be file or content depending on daily goal
-            'evidence' => 'sometimes',
-            'evidence_type' => 'sometimes|string',
+            'evidence' => 'nullable',
+            'note' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['status' => false, 'message' => 'Validation errors', 'errors' => $validator->errors()], 422);
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $data = $validator->validated();
+        $dailyGoal = DailyGoal::findOrFail($request->daily_goal_id);
+        $customer = Customer::findOrFail($request->customer_id);
 
-        $dailyGoal = DailyGoal::findOrFail($data['daily_goal_id']);
-        $customer = Customer::findOrFail($data['customer_id']);
-
-        // Authorization: actor must be owner (sales) or admin/manager
-        if ($actor->role !== 'administrator' && $actor->role !== 'sales_manager' && $dailyGoal->user_id !== $actor->id) {
-            return response()->json(['message' => 'Forbidden.'], 403);
-        }
-
-        // Ensure the daily goal belongs to same KPI as customer's current KPI
-        if ($customer->current_kpi_id && $customer->current_kpi_id != $dailyGoal->kpi_id) {
-            return response()->json(['message' => 'Daily goal does not match customer current KPI.'], 422);
-        }
-
-        // Prevent duplicate completion for same daily goal and customer
-        $exists = Progress::where('user_id', $dailyGoal->user_id)
-            ->where('customer_id', $customer->id)
+        // 1. CEK DUPLIKASI
+        $exists = Progress::where('customer_id', $customer->id)
             ->where('daily_goal_id', $dailyGoal->id)
             ->exists();
         if ($exists) {
-            return response()->json(['status' => false, 'message' => 'This daily goal has already been completed for this customer.'], 409);
+            return response()->json(['message' => 'Misi ini sudah diselesaikan sebelumnya.'], 409);
         }
-
-        // compute progress value as equal share of KPI (100 / number of daily goals assigned to this user for this KPI)
-        $totalDaily = DailyGoal::where('user_id', $dailyGoal->user_id)->where('kpi_id', $dailyGoal->kpi_id)->count();
-        $progressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
 
         DB::beginTransaction();
         try {
+            // 2. HITUNG BOBOT PROGRESS
+            $totalDaily = DailyGoal::where('user_id', $dailyGoal->user_id)
+                ->where('kpi_id', $dailyGoal->kpi_id)
+                ->where('description', 'NOT LIKE', 'Auto-generated%') // ← PENTING!
+                ->count();
+            $progressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
+
+            // 3. VALIDASI SEDERHANA
+            $isValid = true; 
+            $reviewNote = "Sistem: Data diterima otomatis.";
+
+            if ($dailyGoal->input_type === 'phone' && strlen($request->evidence) < 10) {
+                $isValid = false;
+                $reviewNote = "Sistem: Format nomor telepon tidak valid.";
+            }
+
+            // 4. SIMPAN PROGRESS
             $progress = Progress::create([
-                'user_id' => $dailyGoal->user_id,
+                'user_id' => $actor->id,
                 'kpi_id' => $dailyGoal->kpi_id,
                 'daily_goal_id' => $dailyGoal->id,
                 'customer_id' => $customer->id,
-                'time_completed' => now(),
-                'progress_value' => $progressValue,
+                'time_completed' => $isValid ? now() : null,
+                'progress_value' => $isValid ? $progressValue : 0,
                 'progress_date' => now()->toDateString(),
+                'status' => $isValid ? 'approved' : 'rejected',
+                'reviewer_note' => $reviewNote
             ]);
 
-            // Handle evidence
-            $attachment = null;
+            // 5. HANDLE ATTACHMENT
             if ($request->hasFile('evidence')) {
                 $file = $request->file('evidence');
                 $path = $file->store('progress_attachments', 'public');
-
-                $attachment = ProgressAttachment::create([
+                ProgressAttachment::create([
                     'progress_id' => $progress->id,
-                    'original_name' => $file->getClientOriginalName(),
                     'file_path' => $path,
-                    'mime_type' => $file->getClientMimeType(),
-                    'size' => $file->getSize(),
-                    'type' => $dailyGoal->input_type === 'image' ? 'image' : ($dailyGoal->input_type === 'video' ? 'video' : 'file'),
+                    'type' => $dailyGoal->input_type,
+                    'original_name' => $file->getClientOriginalName()
                 ]);
-            } else {
-                // handle textual/phone evidence in 'evidence' field
-                if (! empty($data['evidence'])) {
-                    $attachment = ProgressAttachment::create([
-                        'progress_id' => $progress->id,
-                        'original_name' => null,
-                        'file_path' => null,
-                        'mime_type' => null,
-                        'size' => null,
-                        'type' => $data['evidence_type'] ?? ($dailyGoal->input_type === 'phone' ? 'phone' : 'text'),
-                        'content' => is_array($data['evidence']) ? json_encode($data['evidence']) : (string)$data['evidence'],
+            } elseif ($request->evidence) {
+                ProgressAttachment::create([
+                    'progress_id' => $progress->id,
+                    'content' => $request->evidence,
+                    'type' => $dailyGoal->input_type
+                ]);
+            }
+
+            // 6. CEK APAKAH KPI CURRENT SUDAH 100%
+            $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id; // ← Fallback ke kpi_id jika current_kpi_id null
+            
+            $totalAssigned = DailyGoal::where('user_id', $actor->id)
+                ->where('kpi_id', $currentKpiId)
+                ->where('description', 'NOT LIKE', 'Auto-generated%')
+                ->count();
+
+            $totalCompleted = Progress::where('customer_id', $customer->id)
+                ->where('kpi_id', $currentKpiId)
+                ->where('user_id', $actor->id) // ← TAMBAHKAN ini untuk memastikan hanya progress user ini
+                ->whereNotNull('time_completed')
+                ->distinct('daily_goal_id') // ← Pastikan tidak dobel count
+                ->count('daily_goal_id');
+
+            \Log::info("KPI Check", [
+                'customer_id' => $customer->id,
+                'current_kpi_id' => $currentKpiId,
+                'total_assigned' => $totalAssigned,
+                'total_completed' => $totalCompleted
+            ]);
+
+            // 7. JIKA SUDAH 100%, NAIK KE KPI BERIKUTNYA
+            $isFinished = ($totalAssigned > 0 && $totalCompleted >= $totalAssigned);
+
+            if ($isFinished) {
+                $currentKpi = KPI::find($currentKpiId);
+                
+                // Cari KPI berikutnya berdasarkan sequence
+                $nextKpi = KPI::where('sequence', '>', $currentKpi->sequence)
+                    ->orderBy('sequence', 'asc')
+                    ->first();
+
+                if ($nextKpi) {
+                    // UPDATE CUSTOMER
+                    $customer->current_kpi_id = $nextKpi->id;
+                    $customer->kpi_id = $nextKpi->id; // ← Update juga kpi_id kalau masih dipakai
+                    
+                    // ⭐ MAPPING STATUS BERDASARKAN CODE KPI
+                    $statusMap = [
+                        'visit1' => 'New',
+                        'visit2' => 'Warm Prospect',
+                        'visit3' => 'Hot Prospect',
+                        'deal' => 'Deal Won',
+                        'after_sales' => 'After Sales'
+                    ];
+                    
+                    $customer->status = $statusMap[$nextKpi->code] ?? $customer->status;
+                    $customer->status_changed_at = now();
+                    $customer->save();
+
+                    \Log::info("Customer advanced to next KPI", [
+                        'customer_id' => $customer->id,
+                        'old_kpi' => $currentKpi->code,
+                        'new_kpi' => $nextKpi->code,
+                        'new_status' => $customer->status
                     ]);
                 }
             }
 
-            // Recompute cumulative percent for this user/customer/kpi
-            $cumulative = Progress::where('user_id', $dailyGoal->user_id)
-                ->where('customer_id', $customer->id)
-                ->where('kpi_id', $dailyGoal->kpi_id)
-                ->sum('progress_value');
-
-            $cumulative = min(100, round($cumulative, 2));
-
-            // If KPI completed, advance to next KPI in sequence (cycle type)
-            $kpiCompleted = $cumulative >= 100;
-            $statusUpdate = null;
-            $nextKpi = null;
-            if ($kpiCompleted) {
-                $currentKpi = KPI::find($dailyGoal->kpi_id);
-                if ($currentKpi) {
-                    // find next KPI by sequence
-                    $nextKpi = KPI::where('type', 'cycle')
-                        ->where('sequence', '>', $currentKpi->sequence ?? 0)
-                        ->orderBy('sequence', 'asc')
-                        ->first();
-
-                    if ($nextKpi) {
-                        $customer->current_kpi_id = $nextKpi->id;
-                    } else {
-                        // no next KPI in cycle -> we're in After Sales
-                        $customer->current_kpi_id = null;
-                    }
-
-                    // Map KPI id (or sequence) to status labels using typical rules
-                    $statusMap = [
-                        2 => 'Warm Prospect',
-                        3 => 'Hot Prospect',
-                        4 => 'Deal Won',
-                        6 => 'After Sales',
-                    ];
-                    $newStatus = null;
-                    if ($nextKpi) {
-                        $newStatus = $statusMap[$nextKpi->id] ?? null;
-                    } else {
-                        // If no next KPI assume After Sales
-                        $newStatus = 'After Sales';
-                    }
-
-                    if ($newStatus) {
-                        $customer->status = $newStatus;
-                        $customer->status_changed_at = now();
-                        $statusUpdate = $newStatus;
-                    }
-
-                    $customer->save();
-                }
-            }
-
             DB::commit();
-
+            
             return response()->json([
-                'status' => true,
-                'message' => 'Progress recorded',
-                'progress' => $progress,
-                'attachment' => $attachment,
-                'cumulative_percent' => $cumulative,
-                'kpi_completed' => $kpiCompleted,
-                'next_kpi' => $nextKpi ? $nextKpi->only(['id','code','description','sequence']) : null,
-                'status_update' => $statusUpdate,
-                'can_reset_cycle' => ($statusUpdate === 'After Sales') ? true : false,
+                'status' => true, 
+                'is_valid' => $isValid, 
+                'message' => $reviewNote,
+                'kpi_completed' => $isFinished,
+                'progress_percent' => $totalAssigned > 0 ? round(($totalCompleted / $totalAssigned) * 100, 2) : 0
             ], 201);
+
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['status' => false, 'message' => 'Could not record progress', 'error' => $e->getMessage()], 500);
+            \Log::error("Progress store error: " . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
