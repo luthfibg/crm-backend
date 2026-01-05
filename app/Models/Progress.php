@@ -18,6 +18,8 @@ class Progress extends Model
         'time_completed',
         'progress_value',
         'progress_date',
+        'status',
+        'reviewer_note',
     ];
 
     public function user(): BelongsTo {

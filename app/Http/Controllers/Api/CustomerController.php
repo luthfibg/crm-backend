@@ -137,4 +137,64 @@ class CustomerController extends Controller
         $customer->delete();
         return response()->json(null, 204);
     }
+
+    /**
+     * Skip customer to next KPI (force advance)
+     */
+    public function skipKpi(Request $request, $customerId)
+    {
+        $actor = $request->user();
+        $customer = Customer::findOrFail($customerId);
+
+        // Authorization: hanya owner atau admin
+        if ($actor->role !== 'administrator' && $customer->user_id !== $actor->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $currentKpiId = $customer->current_kpi_id;
+        $currentKpi = KPI::find($currentKpiId);
+
+        if (!$currentKpi) {
+            return response()->json(['message' => 'Current KPI not found'], 404);
+        }
+
+        // Cari KPI berikutnya
+        $nextKpi = KPI::where('type', 'cycle') // Hanya KPI cycle yang bisa di-skip
+            ->where('sequence', '>', $currentKpi->sequence)
+            ->orderBy('sequence', 'asc')
+            ->first();
+
+        if (!$nextKpi) {
+            return response()->json(['message' => 'Sudah di KPI terakhir'], 400);
+        }
+
+        // Update customer
+        $statusMap = [
+            'visit1' => 'New',
+            'visit2' => 'Warm Prospect',
+            'visit3' => 'Hot Prospect',
+            'deal' => 'Deal Won',
+            'after_sales' => 'After Sales'
+        ];
+
+        $customer->current_kpi_id = $nextKpi->id;
+        $customer->kpi_id = $nextKpi->id;
+        $customer->status = $statusMap[$nextKpi->code] ?? $customer->status;
+        $customer->status_changed_at = now();
+        $customer->save();
+
+        \Log::info("Customer skipped to next KPI", [
+            'customer_id' => $customer->id,
+            'old_kpi' => $currentKpi->code,
+            'new_kpi' => $nextKpi->code,
+            'skipped_by' => $actor->id
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Berhasil skip ke KPI berikutnya',
+            'new_kpi' => $nextKpi->description,
+            'new_status' => $customer->status
+        ]);
+    }
 }

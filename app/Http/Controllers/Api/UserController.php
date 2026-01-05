@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use App\Models\Customer;
+use App\Models\CustomerKpiScore;
 
 class UserController extends Controller
 {
@@ -18,6 +20,44 @@ class UserController extends Controller
     {
         $users = UserResource::collection(User::all());
         return response()->json($users);
+    }
+
+    /**
+     * Get user statistics (total points, customers, etc.)
+     */
+    public function getStats(Request $request, $userId)
+    {
+        $actor = $request->user();
+        
+        // Authorization: hanya bisa lihat stats sendiri kecuali admin
+        if ($actor->role !== 'administrator' && $actor->id != $userId) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $user = User::findOrFail($userId);
+
+        // Hitung total points dari semua customers
+        $totalPoints = CustomerKpiScore::where('user_id', $userId)
+            ->sum('earned_points');
+
+        // Hitung jumlah customers
+        $totalCustomers = Customer::where('user_id', $userId)->count();
+        
+        $activeCustomers = Customer::where('user_id', $userId)
+            ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])
+            ->count();
+
+        // Update user points (optional, untuk sync)
+        $user->points = (int) $totalPoints;
+        $user->save();
+
+        return response()->json([
+            'totalPoints' => round($totalPoints, 2),
+            'level' => $user->level,
+            'totalCustomers' => $totalCustomers,
+            'activeCustomers' => $activeCustomers,
+            'badge' => $user->badge,
+        ]);
     }
 
     /**

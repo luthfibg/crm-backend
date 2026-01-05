@@ -22,6 +22,9 @@ class Customer extends Model
         'current_kpi_id',
         'status',
         'status_changed_at',
+        'earned_points',
+        'max_points',
+        'score_percentage',
     ];
 
     public function user(): BelongsTo {
@@ -34,6 +37,11 @@ class Customer extends Model
 
     public function currentKpi(): BelongsTo {
         return $this->belongsTo(KPI::class, 'current_kpi_id');
+    }
+
+    public function kpiScores()
+    {
+        return $this->hasMany(CustomerKpiScore::class);
     }
 
     public function progresses(): HasMany {
