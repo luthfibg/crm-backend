@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -146,5 +147,34 @@ class UserController extends Controller
         $user = User::findOrFail($id);
         $user->delete();
         return response()->json(null, 204);
+    }
+
+    /**
+     * Update user settings such as is_developer_mode and allow_force_push
+     */
+    public function updateSettings(Request $request)
+    {
+        $user = $request->user();
+        
+        // Validasi input agar hanya kolom tertentu yang bisa diupdate via endpoint ini
+        $data = $request->validate([
+            'is_developer_mode' => 'sometimes|boolean',
+            'allow_force_push'  => 'sometimes|boolean',
+        ]);
+
+        Log::info("data terset: ", $data);
+
+        // Hanya izinkan administrator untuk mengubah setting ini jika perlu
+        if ($user->role !== 'administrator') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $user->update($data);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Settings updated successfully',
+            'user' => $user
+        ]);
     }
 }
