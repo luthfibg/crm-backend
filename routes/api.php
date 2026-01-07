@@ -29,4 +29,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/progress/submit', [ProgressController::class, 'store']);
     Route::post('customers/{customer}/skip-kpi', [CustomerController::class, 'skipKpi']);
     Route::get('users/{user}/stats', [UserController::class, 'getStats']);
+    Route::patch('/user/update-settings', [UserController::class, 'updateSettings']);
+    Route::delete('/progress/reset-prospect/{id}', [ProgressController::class, 'resetProspect']);
 });

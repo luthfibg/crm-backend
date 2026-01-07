@@ -32,6 +32,8 @@ class User extends Authenticatable
         'level',
         'bio',
         'badge',
+        'is_developer_mode',
+        'allow_force_push'
     ];
 
     /**
