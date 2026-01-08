@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -32,7 +33,16 @@ class ProgressController extends Controller
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Store progress untuk task
+     * 
+     * FLOW:
+     * 1. Validasi input
+     * 2. Cek duplikasi
+     * 3. Validasi evidence (approved/rejected)
+     * 4. Simpan progress
+     * 5. Update scoring (HANYA jika approved)
+     * 6. Cek apakah KPI sudah 100% approved
+     * 7. Auto-advance ke KPI berikutnya (HANYA jika 100%)
      */
     public function store(Request $request)
     {
@@ -56,6 +66,7 @@ class ProgressController extends Controller
         $exists = Progress::where('customer_id', $customer->id)
             ->where('daily_goal_id', $dailyGoal->id)
             ->exists();
+            
         if ($exists) {
             return response()->json([
                 'status' => false,
@@ -71,20 +82,20 @@ class ProgressController extends Controller
             $isValid = $validationResult['is_valid'];
             $reviewNote = $validationResult['message'];
 
-            // 3. HITUNG BOBOT PROGRESS (untuk progress_value saja, bukan scoring)
+            // 3. HITUNG BOBOT PROGRESS
             $totalDaily = DailyGoal::where('user_id', $dailyGoal->user_id)
                 ->where('kpi_id', $dailyGoal->kpi_id)
                 ->where('description', 'NOT LIKE', 'Auto-generated%')
                 ->count();
             $progressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
 
-            // 4. SIMPAN PROGRESS (selalu simpan, baik approved maupun rejected)
+            // 4. SIMPAN PROGRESS
             $progress = Progress::create([
                 'user_id' => $actor->id,
                 'kpi_id' => $dailyGoal->kpi_id,
                 'daily_goal_id' => $dailyGoal->id,
                 'customer_id' => $customer->id,
-                'time_completed' => now(), // Selalu set time
+                'time_completed' => now(),
                 'progress_value' => $isValid ? $progressValue : 0,
                 'progress_date' => now()->toDateString(),
                 'status' => $isValid ? 'approved' : 'rejected',
@@ -109,7 +120,7 @@ class ProgressController extends Controller
                 ]);
             }
 
-            // 6. ⭐ UPDATE SCORING (HANYA jika valid/approved)
+            // 6. UPDATE SCORING (HANYA jika approved)
             $scoringResult = null;
             if ($isValid) {
                 $scoringResult = $this->scoringService->calculateKpiScore(
@@ -119,29 +130,36 @@ class ProgressController extends Controller
                 );
             }
 
-            // 7. CEK APAKAH KPI CURRENT SUDAH 100% (berdasarkan approved tasks)
+            // 7. CEK APAKAH KPI CURRENT SUDAH 100% APPROVED
             $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
             
+            // ⭐ HITUNG TOTAL TASKS vs APPROVED TASKS
             $totalAssigned = DailyGoal::where('user_id', $actor->id)
                 ->where('kpi_id', $currentKpiId)
                 ->where('description', 'NOT LIKE', 'Auto-generated%')
                 ->count();
 
-            $totalCompleted = Progress::where('customer_id', $customer->id)
+            $totalApproved = Progress::where('customer_id', $customer->id)
                 ->where('kpi_id', $currentKpiId)
                 ->where('user_id', $actor->id)
-                ->where('status', 'approved')
+                ->where('status', 'approved') // ← HANYA HITUNG YANG APPROVED
                 ->whereNotNull('time_completed')
                 ->distinct('daily_goal_id')
                 ->count('daily_goal_id');
 
-            $currentProgress = $totalAssigned > 0 ? round(($totalCompleted / $totalAssigned) * 100, 2) : 0;
+            $currentProgress = $totalAssigned > 0 ? round(($totalApproved / $totalAssigned) * 100, 2) : 0;
 
-            // 8. JIKA SUDAH 100% APPROVED, NAIK KE KPI BERIKUTNYA
-            $isFinished = ($totalAssigned > 0 && $totalCompleted >= $totalAssigned);
+            // 8. ⭐ STRICT MODE: HANYA NAIK JIKA 100% APPROVED
+            $isKpiCompleted = ($totalAssigned > 0 && $totalApproved >= $totalAssigned);
 
-            if ($isFinished) {
+            if ($isKpiCompleted) {
                 $this->advanceCustomerToNextKPI($customer, $currentKpiId);
+                
+                Log::info("✅ KPI Completed & Auto-Advanced", [
+                    'customer_id' => $customer->id,
+                    'kpi_id' => $currentKpiId,
+                    'progress' => $currentProgress . '%'
+                ]);
             }
 
             DB::commit();
@@ -150,14 +168,14 @@ class ProgressController extends Controller
                 'status' => true, 
                 'is_valid' => $isValid, 
                 'message' => $reviewNote,
-                'kpi_completed' => $isFinished,
+                'kpi_completed' => $isKpiCompleted,
                 'progress_percent' => $currentProgress,
-                'scoring' => $scoringResult, // Null jika rejected
+                'scoring' => $scoringResult,
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error("Progress store error: " . $e->getMessage(), [
+            Log::error("Progress store error: " . $e->getMessage(), [
                 'daily_goal_id' => $request->daily_goal_id,
                 'customer_id' => $request->customer_id,
             ]);
@@ -170,7 +188,7 @@ class ProgressController extends Controller
     }
 
     /**
-     * Sistem validasi cerdas sederhana
+     * Sistem validasi evidence sederhana namun cerdas
      */
     private function validateEvidence($dailyGoal, $request)
     {
@@ -186,7 +204,6 @@ class ProgressController extends Controller
 
             $cleanPhone = preg_replace('/[^0-9+]/', '', $evidence);
             
-            // Format Indonesia: +62, 62, atau 0 diikuti 9-13 digit
             if (preg_match('/^(\\+62|62|0)8[1-9][0-9]{6,9}$/', $cleanPhone)) {
                 return ['is_valid' => true, 'message' => 'Sistem: Nomor telepon valid'];
             }
@@ -200,7 +217,6 @@ class ProgressController extends Controller
                 return ['is_valid' => false, 'message' => 'File belum diupload'];
             }
 
-            // Validasi tipe file
             if ($inputType === 'image') {
                 $validMimes = ['image/jpeg', 'image/jpg', 'image/png'];
                 if (in_array($file->getMimeType(), $validMimes)) {
@@ -217,7 +233,6 @@ class ProgressController extends Controller
                 return ['is_valid' => false, 'message' => 'Sistem: File harus berupa video'];
             }
 
-            // File biasa
             return ['is_valid' => true, 'message' => 'Sistem: File berhasil diterima'];
         }
 
@@ -294,7 +309,8 @@ class ProgressController extends Controller
     }
 
     /**
-     * Advance customer to next KPI
+     * ⭐ AUTO-ADVANCE: Naikkan customer ke KPI berikutnya
+     * HANYA DIPANGGIL SAAT 100% APPROVED
      */
     private function advanceCustomerToNextKPI($customer, $currentKpiId)
     {
@@ -319,14 +335,40 @@ class ProgressController extends Controller
             $customer->status_changed_at = now();
             $customer->save();
 
-            \Log::info("Customer advanced to next KPI", [
+            Log::info("✅ Customer advanced to next KPI", [
                 'customer_id' => $customer->id,
+                'old_kpi' => $currentKpi->code,
                 'new_kpi' => $nextKpi->code,
                 'new_status' => $customer->status
+            ]);
+        } else {
+            // Jika sudah di KPI terakhir
+            Log::info("🏁 Customer completed all KPIs", [
+                'customer_id' => $customer->id,
+                'final_kpi' => $currentKpi->code
             ]);
         }
     }
 
+    /**
+     * Get progress history untuk customer tertentu
+     */
+    public function getCustomerProgress(Request $request, $customerId)
+    {
+        $actor = $request->user();
+        $customer = Customer::findOrFail($customerId);
+
+        $progresses = Progress::where('customer_id', $customerId)
+            ->where('user_id', $actor->id)
+            ->with(['dailyGoal', 'kpi', 'attachments'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => $progresses
+        ]);
+    }
     
 
     public function resetProspect(Request $request, $id)
@@ -339,14 +381,19 @@ class ProgressController extends Controller
         }
 
         $customer = Customer::findOrFail($id);
+        Log::info("Admin {$admin->id} is resetting prospect data for customer {$customer->id}");
 
         DB::beginTransaction();
         try {
             // 1. Ambil semua progress_id milik customer ini untuk hapus attachment
             $progressIds = Progress::where('customer_id', $customer->id)->pluck('id');
+
+            Log::info("Found " . count($progressIds) . " progress records to delete for customer {$customer->id}");
             
             // 2. Hapus file fisik jika ada (opsional, tergantung kebijakan storage)
             $attachments = ProgressAttachment::whereIn('progress_id', $progressIds)->get();
+            Log::info("Found " . count($attachments) . " attachments to delete for customer {$customer->id}");
+
             foreach ($attachments as $file) {
                 if ($file->file_path) Storage::disk('public')->delete($file->file_path);
             }
@@ -354,13 +401,18 @@ class ProgressController extends Controller
             // 3. Hapus data Progress & Attachment (Relasi cascading jika di set di DB, 
             // jika tidak, hapus manual)
             ProgressAttachment::whereIn('progress_id', $progressIds)->delete();
+
+            Log::info("Deleted attachments for customer ($customer->id)");
             Progress::where('customer_id', $customer->id)->delete();
+
+            Log::info("Deleted progress records for customer ($customer->id)");
 
             // 4. Hapus Scoring History
             CustomerKpiScore::where('customer_id', $customer->id)->delete();
+            Log::info("Deleted scoring records for customer ($customer->id)");
 
             // 5. Reset Customer ke State Netral (Bukan prospek lagi)
-            $customer->update([
+            $reseted = $customer->update([
                 'kpi_id' => null,
                 'current_kpi_id' => null,
                 'status' => 'New',
@@ -369,6 +421,8 @@ class ProgressController extends Controller
                 'score_percentage' => 0,
                 'status_changed_at' => null
             ]);
+
+            Log::info("Customer ({$customer->id}) reseted: " . ($reseted ? 'success' : 'failed'));
 
             DB::commit();
             return response()->json(['message' => 'Prospect data cleared. Customer remains.']);

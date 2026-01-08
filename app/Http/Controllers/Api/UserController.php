@@ -160,9 +160,19 @@ class UserController extends Controller
         $data = $request->validate([
             'is_developer_mode' => 'sometimes|boolean',
             'allow_force_push'  => 'sometimes|boolean',
+            'status' => 'sometimes|in:New, Warm Prospect, Hot Prospect, Customer, Inactive'
         ]);
 
-        Log::info("data terset: ", $data);
+        // Convert boolean to integer for database
+        if (isset($data['is_developer_mode'])) {
+            $data['is_developer_mode'] = $data['is_developer_mode'] ? 1 : 0;
+            Log::info("Updating developer_mode to: " . $data['is_developer_mode']);
+        }
+        
+        if (isset($data['allow_force_push'])) {
+            $data['allow_force_push'] = $data['allow_force_push'] ? 1 : 0;
+            Log::info("Updating allow_force_push to: " . $data['allow_force_push']);
+        }
 
         // Hanya izinkan administrator untuk mengubah setting ini jika perlu
         if ($user->role !== 'administrator') {
@@ -170,11 +180,14 @@ class UserController extends Controller
         }
 
         $user->update($data);
+        
+        // Log perubahan
+        Log::info("User {$user->id} settings updated: " . json_encode($data));
 
         return response()->json([
             'status' => true,
             'message' => 'Settings updated successfully',
-            'user' => $user
+            'user' => $user->fresh() // Return fresh data from database
         ]);
     }
 }
