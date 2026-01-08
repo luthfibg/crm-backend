@@ -92,16 +92,26 @@ class DailyGoalController extends Controller
                     ->where('kpi_id', $currentKpiId)
                     ->where('description', 'NOT LIKE', 'Auto-generated%')
                     ->get(['id','description','input_type','order','evidence_required'])
-                    ->map(function($goal) use ($customer) {
+                    ->map(function($goal) use ($customer, $user) {
                         // Cek status progress
                         $progress = Progress::where('daily_goal_id', $goal->id)
                             ->where('customer_id', $customer->id)
+                            ->where('user_id', $user->id)
                             ->whereNotNull('time_completed')
+                            ->orderBy('created_at', 'desc')
+                            ->with('attachments')
                             ->first();
                         
                         $goal->is_completed = $progress && $progress->status === 'approved';
                         $goal->is_rejected = $progress && $progress->status === 'rejected';
-                        
+                        // Expose progress metadata so frontend can call update endpoint
+                        $goal->progress_id = $progress ? $progress->id : null;
+                        $goal->progress_status = $progress ? $progress->status : null;
+                        $goal->reviewer_note = $progress ? $progress->reviewer_note : null;
+                        $goal->attachment = ($progress && $progress->attachments && $progress->attachments->first())
+                            ? $progress->attachments->first()->file_path
+                            : null;
+
                         return $goal;
                     }) 
                 : collect();
