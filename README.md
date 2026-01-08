@@ -57,3 +57,48 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+---
+
+## Reports: Progress Report (initial)
+
+You can generate a progress report per prospect (sales) in PDF, CSV (Excel-friendly) or Word (HTML) format.
+
+- Endpoint (authenticated): GET /api/reports/progress
+- Query params:
+  - `format`: `pdf` | `excel` | `word` (default: `pdf`)
+  - `range`: `daily` | `monthly` (default: `monthly`)
+  - `date`: `YYYY-MM-DD` (required when `range=daily`)
+  - `month`: `YYYY-MM` (required when `range=monthly`)
+  - `user_id`: optional (filter by sales user)
+
+Response/behavior:
+- `format=excel` returns a CSV file (no additional package required)
+- `format=word` returns an HTML file with `application/msword` header
+- `format=pdf` uses `barryvdh/laravel-dompdf` if installed; otherwise it returns HTML as fallback
+
+Installation for PDF support (recommended):
+
+1. Install DOMPDF wrapper:
+
+   composer require barryvdh/laravel-dompdf
+
+2. (Optional) Publish config if you want to tweak PDF options:
+
+   php artisan vendor:publish --provider="Barryvdh\DomPDF\ServiceProvider"
+
+Examples:
+
+- Monthly PDF (current month):
+  GET /api/reports/progress?format=pdf&range=monthly
+
+- Daily CSV for 2026-01-08:
+  GET /api/reports/progress?format=excel&range=daily&date=2026-01-08
+
+- Monthly Word for specific sales:
+  GET /api/reports/progress?format=word&range=monthly&month=2026-01&user_id=5
+
+Notes:
+- Initial implementation summarizes per prospect: name, institution, position, assigned daily goals, approved missions in period, KPI percentage (period & overall), first and last submission dates, and per-daily-goal details (last submission status/date & reviewer note).
+- For XLSX exports, consider installing `maatwebsite/excel` and adapting the controller to return an `Excel::download()` export class.
+

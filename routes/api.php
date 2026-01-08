@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\DailyGoalController;
 use App\Http\Controllers\Api\KPIController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\AuthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -27,8 +28,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::resource('progress', ProgressController::class);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/progress/submit', [ProgressController::class, 'store']);
+    // Accept both POST and PUT for update (frontend may send PUT)
+    Route::match(['post','put'], '/progress/update/{id}', [ProgressController::class, 'update']);
     Route::post('customers/{customer}/skip-kpi', [CustomerController::class, 'skipKpi']);
     Route::get('users/{user}/stats', [UserController::class, 'getStats']);
     Route::patch('/user/update-settings', [UserController::class, 'updateSettings']);
+
+    // Reports
+    Route::get('/reports/progress', [ReportController::class, 'progressReport']);
     Route::delete('/progress/reset-prospect/{id}', [ProgressController::class, 'resetProspect']);
 });
