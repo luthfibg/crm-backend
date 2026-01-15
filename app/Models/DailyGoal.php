@@ -14,11 +14,17 @@ class DailyGoal extends Model
         'description',
         'user_id',
         'kpi_id',
+        'daily_goal_type_id',
         'is_completed',
         'input_type',
         'order',
         'evidence_required',
     ];
+
+    public function type()
+    {
+        return $this->belongsTo(DailyGoalType::class, 'daily_goal_type_id');
+    }
 
     public function user(): BelongsTo
     {

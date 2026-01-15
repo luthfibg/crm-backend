@@ -45,6 +45,7 @@ class CustomerController extends Controller
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|integer',
             'kpi_id' => 'required|integer',
+            'category' => 'required|string', // Tambahkan validasi kategori
             'pic' => 'required|string|max:255',
             'institution' => 'required|string',
             'position' => 'nullable|string',
@@ -61,16 +62,18 @@ class CustomerController extends Controller
             ], 422);
         }
 
-        $data = $validator->validate();
+        // Mengambil data yang sudah tervalidasi
+        $data = $validator->validated();
+        
         $data['current_kpi_id'] = 1;
         $data['status'] = 'New';
         $data['status_changed_at'] = now();
 
+        // Pastikan model Customer sudah menambahkan 'category' di $fillable
         $customer = Customer::create($data);
 
         $user = User::find($data['user_id']);
         if ($user) {
-            // Pastikan User terhubung ke KPI 1
             $user->kpis()->syncWithoutDetaching([1]);
         }
 

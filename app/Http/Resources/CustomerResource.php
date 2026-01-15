@@ -24,6 +24,7 @@ class CustomerResource extends JsonResource
             'email' => $this->email,
             'phone_number' => $this->phone_number,
             'notes' => $this->notes,
+            'category' => $this->category,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
             // Only include these for administrators

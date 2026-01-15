@@ -75,7 +75,7 @@ class UserController extends Controller
             'date_of_birth' => 'nullable|date',
             'role' => 'in:administrator,sales,presales,telesales',
             'points' => 'nullable|integer',
-            'level' => 'nullable|string|max:100',
+            'level' => 'nullable|integer',
             'bio' => 'nullable|string|max:500',
             'badge' => 'nullable|string|max:100'
         ]);
