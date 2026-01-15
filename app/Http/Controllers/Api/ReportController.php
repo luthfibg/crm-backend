@@ -11,6 +11,7 @@ use App\Models\Progress;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Log;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class ReportController extends Controller
 {
@@ -191,7 +192,7 @@ class ReportController extends Controller
         // PDF (uses barryvdh/laravel-dompdf if available)
         if (class_exists('\Barryvdh\DomPDF\Facade\Pdf')) {
             try {
-                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('reports.progress', [
+                $pdf = Pdf::loadView('reports.progress', [
                     'label' => $label,
                     'range' => $range,
                     'start' => $start,

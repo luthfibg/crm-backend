@@ -21,6 +21,7 @@ class Customer extends Model
         'notes',
         'current_kpi_id',
         'status',
+        'category',
         'status_changed_at',
         'earned_points',
         'max_points',
