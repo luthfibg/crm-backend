@@ -22,129 +22,140 @@ class DailyGoalController extends Controller
      * - Pastikan UI bisa show rejected tasks untuk di-resubmit
      */
     public function index(Request $request)
-    {
-        $user = $request->user();
-        if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
+{
+    $user = $request->user();
+    if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
 
-        // 1. Ambil customers (sertakan relasi KPI)
-        $query = \App\Models\Customer::with('kpi');
-        $customers = ($user->role === 'administrator') ? $query->get() : $user->customers()->with('kpi')->get();
+    // Ambil customer dengan relasi KPI saat ini
+    $query = \App\Models\Customer::with('kpi')
+        ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect']);
+    $customers = ($user->role === 'administrator') ? $query->get() : $user->customers()->with('kpi')->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])->get();
 
-        // 2. ⭐ HITUNG ASSIGNED GOALS SECARA DINAMIS BERDASARKAN TIPE
-        // Kita ambil master daily goals yang difilter berdasarkan tipe/kategori
-        $allDailyGoals = DailyGoal::where('user_id', $user->id)
-            ->where('description', 'NOT LIKE', 'Auto-generated%')
-            ->with('type') // Memuat model DailyGoalType
-            ->get();
+    // 1. Ambil Master Daily Goals (Gunakan WHERE IN kpi_id agar lebih cepat)
+    $allDailyGoals = DailyGoal::where('user_id', $user->id)
+        ->where('description', 'NOT LIKE', 'Auto-generated%')
+        ->get();
 
-        // 3. Ambil data APPROVED (Tetap sama)
-        $approvedRows = Progress::where('user_id', $user->id)
-            ->where('status', 'approved')
-            ->whereNotNull('time_completed')
-            ->whereIn('customer_id', $customers->pluck('id'))
-            ->selectRaw('kpi_id, customer_id, COUNT(DISTINCT daily_goal_id) as approved')
-            ->groupBy('kpi_id', 'customer_id')
-            ->get();
+    // 2. Mapping Group (Pastikan konsisten dengan inputan Admin)
+    $groupMapping = [
+        'UKPBJ'            => 'KEDINASAN',
+        'RUMAH SAKIT'      => 'KEDINASAN',
+        'KANTOR KEDINASAN' => 'KEDINASAN',
+        'KANTOR BALAI'     => 'KEDINASAN',
+        'KELURAHAN'        => 'KECAMATAN',
+        'KECAMATAN'        => 'KECAMATAN',
+        'PUSKESMAS'        => 'PUSKESMAS'
+    ];
 
-        $approvedByCustomer = $approvedRows->groupBy('customer_id')->map(function($g) {
-            return $g->keyBy('kpi_id')->map(fn($r) => (int)$r->approved);
+    // 3. Ambil data PROGRESS yang sudah APPROVED
+    $approvedByCustomer = Progress::where('user_id', $user->id)
+        ->where('status', 'approved')
+        ->whereNotNull('time_completed')
+        ->whereIn('customer_id', $customers->pluck('id'))
+        ->get()
+        ->groupBy('customer_id')
+        ->map(function($items) {
+            return $items->groupBy('kpi_id')->map(fn($group) => $group->count());
         });
 
-        $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer) {
-            $currentKpi = $customer->kpi;
-            $currentKpiId = $customer->current_kpi_id;
-            $customerCategory = strtolower($customer->category); // Pastikan lowercase untuk perbandingan
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $groupMapping) {
+        $currentKpi = $customer->kpi;
+        $currentKpiId = $customer->current_kpi_id;
+        
+        // Mapping Sub-Kategori
+        $rawSub = strtoupper($customer->sub_category ?? '');
+        $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
 
-            // Fungsi pembantu untuk memfilter goals yang cocok dengan kategori customer ini
-            $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customerCategory) {
-                return $allDailyGoals->filter(function($goal) use ($kpiId, $customerCategory) {
-                    // Goal tampil jika: 1. KPI Cocok DAN 2. Tipe cocok dengan kategori customer
-                    return $goal->kpi_id == $kpiId && 
-                        ($goal->type && strtolower($goal->type->name) === $customerCategory);
-                });
-            };
+        // Fungsi Filter Goals yang lebih tangguh
+        $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customer, $targetGoalGroup) {
+            return $allDailyGoals->filter(function($goal) use ($kpiId, $customer, $targetGoalGroup) {
+                // Syarat 1: KPI ID harus cocok
+                if ($goal->kpi_id != $kpiId) return false;
 
-            // Ambil semua KPI untuk history
-            $allKpis = \App\Models\KPI::where('type', 'cycle')
-                ->where('sequence', '<=', $currentKpi->sequence ?? 1)
-                ->orderBy('sequence', 'asc')
-                ->get();
+                // Syarat 2: Jika Pemerintahan, cek sub_category mapping
+                if (strtolower($customer->category) === 'pemerintahan') {
+                    return strtoupper($goal->sub_category) === strtoupper($targetGoalGroup);
+                }
 
-            $kpiProgress = $allKpis->map(function($kpi) use ($customer, $approvedByCustomer, $currentKpiId, $getGoalsForCustomer) {
-                // ⭐ Hitung assigned secara dinamis sesuai kategori customer
-                $filteredGoals = $getGoalsForCustomer($kpi->id);
-                $assigned = $filteredGoals->count();
-                
-                $approvedCount = $approvedByCustomer[$customer->id][$kpi->id] ?? 0;
-                $percent = $assigned > 0 ? min(100, round(($approvedCount / $assigned) * 100, 2)) : 0;
-
-                return [
-                    'kpi_id' => $kpi->id,
-                    'kpi_code' => $kpi->code,
-                    'kpi_description' => $kpi->description,
-                    'assigned_count' => (int) $assigned,
-                    'approved_count' => (int) $approvedCount,
-                    'percent' => (float) $percent,
-                    'is_current' => $kpi->id === $currentKpiId,
-                    'is_completed' => $percent >= 100,
-                ];
+                // Syarat 3: Untuk kategori lain (Pendidikan, dll), gunakan daily_goal_type_id
+                return $goal->daily_goal_type_id == $customer->daily_goal_type_id;
             });
+        };
 
-            // ⭐ Filter Daily Goals untuk Current KPI (Hanya yang sesuai kategori)
-            $currentGoalsData = $getGoalsForCustomer($currentKpiId);
+        // History KPI (Pastikan sequence diambil dari KPI master)
+        $allKpis = \App\Models\KPI::where('type', 'cycle')
+            ->where('sequence', '<=', ($currentKpi->sequence ?? 10)) // Ambil sampai tahap skrg atau lebih
+            ->orderBy('sequence', 'asc')
+            ->get();
+
+        $kpiProgress = $allKpis->map(function($kpi) use ($customer, $approvedByCustomer, $currentKpiId, $getGoalsForCustomer) {
+            $filteredGoals = $getGoalsForCustomer($kpi->id);
+            $assigned = $filteredGoals->count();
+            $approvedCount = $approvedByCustomer[$customer->id][$kpi->id] ?? 0;
             
-            $dailyGoals = $currentGoalsData->map(function($goal) use ($customer, $user) {
-                $progress = Progress::where('daily_goal_id', $goal->id)
-                    ->where('customer_id', $customer->id)
-                    ->where('user_id', $user->id)
-                    ->whereNotNull('time_completed')
-                    ->orderBy('created_at', 'desc')
-                    ->with('attachments')
-                    ->first();
-                
-                return [
-                    'id' => $goal->id,
-                    'description' => $goal->description,
-                    'input_type' => $goal->input_type,
-                    'evidence_required' => $goal->evidence_required,
-                    'is_completed' => $progress && $progress->status === 'approved',
-                    'is_rejected' => $progress && $progress->status === 'rejected',
-                    'progress_id' => $progress ? $progress->id : null,
-                    'progress_status' => $progress ? $progress->status : null,
-                    'reviewer_note' => $progress ? $progress->reviewer_note : null,
-                    'attachment' => ($progress && $progress->attachments->first()) 
-                                    ? $progress->attachments->first()->file_path : null,
-                ];
-            })->values();
-
-            // Stats Final
-            $assignedNow = $currentGoalsData->count();
-            $approvedNow = $approvedByCustomer[$customer->id][$currentKpiId] ?? 0;
-            $percentNow = $assignedNow > 0 ? min(100, round(($approvedNow / $assignedNow) * 100, 2)) : 0;
-            $actualPoint = ($percentNow / 100) * ($currentKpi->weight_point ?? 0);
+            // Logic: Jika assigned 0 tapi approved ada (data lama), tetap anggap selesai
+            // Jika assigned > 0, hitung persentase normal
+            if ($assigned > 0) {
+                $percent = min(100, round(($approvedCount / $assigned) * 100, 2));
+            } else {
+                $percent = $approvedCount > 0 ? 100 : 0;
+            }
 
             return [
-                'customer' => [
-                    'id' => $customer->id,
-                    'pic' => $customer->pic,
-                    'institution' => $customer->institution,
-                    'status' => $customer->status,
-                    'category' => $customer->category,
-                ],
-                'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
-                'kpi_progress_history' => $kpiProgress,
-                'daily_goals' => $dailyGoals,
-                'stats' => [
-                    'assigned_count' => (int) $assignedNow,
-                    'approved_count' => (int) $approvedNow,
-                    'percent' => (float) $percentNow,
-                    'actual_point' => (float) $actualPoint,
-                ],
+                'kpi_id'          => $kpi->id,
+                'kpi_description' => $kpi->description,
+                'kpi_weight'      => $kpi->weight_point,
+                'assigned_count'  => (int) $assigned,
+                'approved_count'  => (int) $approvedCount,
+                'percent'         => (float) $percent,
+                'is_current'      => $kpi->id == $currentKpiId,
+                'is_completed'    => $percent >= 100,
             ];
         });
 
-        return response()->json(['data' => $result]);
-    }
+        // Daily Goals untuk KPI Aktif
+        $currentGoalsData = $getGoalsForCustomer($currentKpiId);
+        $dailyGoals = $currentGoalsData->map(function($goal) use ($customer, $user) {
+            $progress = Progress::where('daily_goal_id', $goal->id)
+                ->where('customer_id', $customer->id)
+                ->where('user_id', $user->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            
+            return [
+                'id'                => $goal->id,
+                'description'       => $goal->description,
+                'input_type'        => $goal->input_type,
+                'is_completed'      => $progress && $progress->status === 'approved',
+                'progress_status'   => $progress ? $progress->status : null,
+            ];
+        })->values();
+
+        // Statistik Current KPI
+        $statsCurrent = $kpiProgress->firstWhere('kpi_id', $currentKpiId) ?? ['percent' => 0, 'approved_count' => 0, 'assigned_count' => 0];
+
+        return [
+            'customer' => [
+                'id'           => $customer->id,
+                'pic'          => $customer->pic,
+                'institution'  => $customer->institution,
+                'category'     => $customer->category,
+                'sub_category' => $customer->sub_category,
+                'status'       => $customer->status,
+            ],
+            'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
+            'kpi_progress_history' => $kpiProgress,
+            'daily_goals' => $dailyGoals,
+            'stats' => [
+                'percent'        => (float) $statsCurrent['percent'],
+                'approved_count' => (int) $statsCurrent['approved_count'],
+                'assigned_count' => (int) $statsCurrent['assigned_count'],
+            ],
+        ];
+    });
+
+    return response()->json(['data' => $result]);
+}
 
     /**
      * Store a new daily goals per KPI for new sales.
@@ -152,17 +163,19 @@ class DailyGoalController extends Controller
     public function store(Request $request)
     {
         $actor = $request->user();
-        if (! $actor) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
-        }
+        if (!$actor) return response()->json(['message' => 'Unauthenticated.'], 401);
 
-        if (! in_array($actor->role, ['administrator', 'sales_manager'])) {
+        if (!in_array($actor->role, ['administrator', 'sales_manager'])) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|integer|exists:users,id',
-            'kpi_id' => 'required|integer|exists:kpis,id',
+            'kpi_id'  => 'required|integer|exists:kpis,id',
+            // Tambahkan ID Tipe/Kategori Utama
+            'daily_goal_type_id' => 'required|integer|exists:daily_goal_types,id',
+            // Sub-Kategori wajib diisi HANYA JIKA tipe yang dipilih adalah Pemerintahan
+            'sub_category' => 'nullable|string|in:Kedinasan,Kecamatan,Puskesmas', 
             'daily_goals' => 'required|array|min:1',
             'daily_goals.*.description' => 'required|string|max:255',
             'daily_goals.*.is_completed' => 'sometimes|boolean',
@@ -181,7 +194,7 @@ class DailyGoalController extends Controller
 
         $data = $validator->validated();
         $user = User::findOrFail($data['user_id']);
-        $kpi = KPI::findOrFail($data['kpi_id']);
+        $kpi  = KPI::findOrFail($data['kpi_id']);
 
         DB::beginTransaction();
         try {
@@ -190,13 +203,15 @@ class DailyGoalController extends Controller
             $created = [];
             foreach ($data['daily_goals'] as $dg) {
                 $created[] = DailyGoal::create([
-                    'description' => $dg['description'],
                     'user_id' => $user->id,
-                    'kpi_id' => $kpi->id,
-                    'is_completed' => $dg['is_completed'] ?? false,
-                    'input_type' => $dg['input_type'] ?? 'none',
-                    'order' => $dg['order'] ?? null,
-                    'evidence_required' => $dg['evidence_required'] ?? false,
+                    'kpi_id'  => $kpi->id,
+                    'daily_goal_type_id' => $data['daily_goal_type_id'], // Simpan kategori utama
+                    'sub_category'       => $data['sub_category'] ?? null, // Simpan sub-kategori (jika ada)
+                    'description'        => $dg['description'],
+                    'is_completed'       => $dg['is_completed'] ?? false,
+                    'input_type'         => $dg['input_type'] ?? 'none',
+                    'order'              => $dg['order'] ?? null,
+                    'evidence_required'  => $dg['evidence_required'] ?? false,
                 ]);
             }
 
@@ -204,7 +219,7 @@ class DailyGoalController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Daily goals created',
+                'message' => 'Daily goals created successfully',
                 'daily_goals' => $created
             ], 201);
         } catch (\Exception $e) {

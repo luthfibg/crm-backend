@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Customer;
 use App\Models\CustomerKpiScore;
+use App\Models\Progress;
+use App\Models\KPI;
 
 class UserController extends Controller
 {
@@ -189,5 +191,61 @@ class UserController extends Controller
             'message' => 'Settings updated successfully',
             'user' => $user->fresh() // Return fresh data from database
         ]);
+    }
+
+    /**
+     * Get sales persons with their pipelines for dashboard
+     */
+    public function getSalesWithPipelines(Request $request)
+    {
+        $actor = $request->user();
+        if (!$actor || $actor->role !== 'administrator') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $salesUsers = User::where('role', 'sales')->get();
+
+        $result = $salesUsers->map(function($user) {
+            // Get active customers for this user
+            $customers = Customer::where('user_id', $user->id)
+                ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])
+                ->with('kpi')
+                ->get();
+
+            // Calculate total score
+            $totalScore = CustomerKpiScore::where('user_id', $user->id)->sum('earned_points');
+
+            // Build pipelines
+            $pipelines = $customers->map(function($customer) {
+                // Map KPI sequence to stage (1-5)
+                $sequence = $customer->kpi ? $customer->kpi->sequence : 1;
+                $stage = min($sequence, 5); // Max stage 5
+
+                // Get last progress date
+                $lastProgress = Progress::where('customer_id', $customer->id)
+                    ->where('user_id', $customer->user_id)
+                    ->orderBy('time_completed', 'desc')
+                    ->first();
+
+                return [
+                    'pic' => $customer->pic,
+                    'title' => $customer->position ?? 'Position',
+                    'company' => $customer->institution,
+                    'stage' => $stage,
+                    'date' => $lastProgress ? $lastProgress->time_completed->format('M d, Y') : 'No activity'
+                ];
+            })->toArray();
+
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'avatar' => $user->avatar ?? 'https://i.pravatar.cc/150?u=' . $user->id,
+                'summary' => $user->bio ?? 'Sales Representative',
+                'pipelines' => $pipelines,
+                'totalScore' => $totalScore
+            ];
+        });
+
+        return response()->json(['data' => $result]);
     }
 }
