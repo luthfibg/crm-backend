@@ -15,6 +15,7 @@ class DailyGoal extends Model
         'user_id',
         'kpi_id',
         'daily_goal_type_id',
+        'sub_category',
         'is_completed',
         'input_type',
         'order',

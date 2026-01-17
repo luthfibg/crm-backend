@@ -32,6 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::match(['post','put'], '/progress/update/{id}', [ProgressController::class, 'update']);
     Route::post('customers/{customer}/skip-kpi', [CustomerController::class, 'skipKpi']);
     Route::get('users/{user}/stats', [UserController::class, 'getStats']);
+    Route::get('sales/pipelines', [UserController::class, 'getSalesWithPipelines']);
     Route::patch('/user/update-settings', [UserController::class, 'updateSettings']);
 
     // Reports
