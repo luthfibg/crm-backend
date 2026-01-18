@@ -73,14 +73,9 @@ class ProgressController extends Controller
                 ], 409);
             }
 
-            // Jika rejected, arahkan untuk update
-            return response()->json([
-                'status' => false,
-                'is_valid' => false,
-                'should_update' => true,
-                'progress_id' => $existingProgress->id,
-                'message' => 'Misi ini sudah pernah di-submit dengan status rejected. Gunakan endpoint update.'
-            ], 409);
+            // Jika rejected, otomatis lakukan update (resubmit)
+            // Ini memungkinkan user untuk resubmit langsung tanpa harus memanggil endpoint update
+            return $this->handleResubmit($request, $existingProgress, $dailyGoal, $customer, $actor);
         }
 
         // 2. Lanjut submit baru
@@ -399,6 +394,154 @@ class ProgressController extends Controller
                 'status' => false,
                 'is_valid' => false,
                 'error' => 'Terjadi kesalahan saat menyimpan progress. Silakan coba lagi.'
+            ], 500);
+        }
+    }
+
+    /**
+     * ⭐ HANDLE RESUBMIT: Otomatis update progress yang rejected saat user submit ulang
+     *
+     * Ini memungkinkan user untuk resubmit melalui endpoint store tanpa harus memanggil update
+     */
+    private function handleResubmit($request, $existingProgress, $dailyGoal, $customer, $actor)
+    {
+        DB::beginTransaction();
+        try {
+            // 1. VALIDASI EVIDENCE BARU
+            $validationResult = $this->validateEvidence($dailyGoal, $request);
+            $isValid = $validationResult['is_valid'];
+            $reviewNote = $validationResult['message'];
+
+            // 2. HITUNG BOBOT (untuk approved)
+            $totalDaily = DailyGoal::where('user_id', $dailyGoal->user_id)
+                ->where('kpi_id', $dailyGoal->kpi_id)
+                ->where('description', 'NOT LIKE', 'Auto-generated%')
+                ->count();
+            $progressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
+
+            // 3. UPDATE PROGRESS
+            $existingProgress->update([
+                'time_completed' => now(),
+                'progress_value' => $isValid ? $progressValue : 0,
+                'progress_date' => now()->toDateString(),
+                'status' => $isValid ? 'approved' : 'rejected',
+                'reviewer_note' => $reviewNote
+            ]);
+
+            // 4. UPDATE/CREATE ATTACHMENT
+            // Hapus attachment lama
+            ProgressAttachment::where('progress_id', $existingProgress->id)->delete();
+
+            if ($request->hasFile('evidence')) {
+                $file = $request->file('evidence');
+                $path = $file->store('progress_attachments', 'public');
+                ProgressAttachment::create([
+                    'progress_id' => $existingProgress->id,
+                    'file_path' => $path,
+                    'type' => $dailyGoal->input_type,
+                    'original_name' => $file->getClientOriginalName()
+                ]);
+            } elseif ($request->evidence && !in_array($dailyGoal->input_type, ['file', 'image', 'video'])) {
+                ProgressAttachment::create([
+                    'progress_id' => $existingProgress->id,
+                    'content' => $request->evidence,
+                    'type' => $dailyGoal->input_type
+                ]);
+            }
+
+            // 5. UPDATE SCORING (HANYA jika sekarang approved)
+            $scoringResult = null;
+            if ($isValid) {
+                $scoringResult = $this->scoringService->calculateKpiScore(
+                    $customer->id,
+                    $dailyGoal->kpi_id,
+                    $actor->id
+                );
+            }
+
+            // 6. CEK APAKAH KPI SUDAH 100%
+            $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
+            
+            // Mapping category ke daily_goal_type_id
+            $categoryToTypeMapping = [
+                'Pendidikan' => 1,
+                'Pemerintahan' => 2,
+                'Web Inquiry Corporate' => 3,
+                'Web Inquiry CNI' => 4,
+                'Web Inquiry C&I' => 4,
+            ];
+            
+            $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+            
+            $totalAssignedQuery = DailyGoal::where('user_id', $actor->id)
+                ->where('kpi_id', $currentKpiId)
+                ->where('description', 'NOT LIKE', 'Auto-generated%');
+                
+            // Filter berdasarkan category
+            if (strtolower($customer->category) === 'pemerintahan') {
+                $groupMapping = [
+                    'UKPBJ' => 'KEDINASAN',
+                    'RUMAH SAKIT' => 'KEDINASAN',
+                    'KANTOR KEDINASAN' => 'KEDINASAN',
+                    'KANTOR BALAI' => 'KEDINASAN',
+                    'KELURAHAN' => 'KECAMATAN',
+                    'KECAMATAN' => 'KECAMATAN',
+                    'PUSKESMAS' => 'PUSKESMAS'
+                ];
+                $rawSub = strtoupper($customer->sub_category ?? '');
+                $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
+                $totalAssignedQuery->where('sub_category', $targetGoalGroup);
+            } else {
+                $totalAssignedQuery->where('daily_goal_type_id', $expectedTypeId);
+            }
+            
+            $totalAssigned = $totalAssignedQuery->count();
+
+            $totalApproved = Progress::where('customer_id', $customer->id)
+                ->where('kpi_id', $currentKpiId)
+                ->where('user_id', $actor->id)
+                ->where('status', 'approved')
+                ->whereNotNull('time_completed')
+                ->distinct('daily_goal_id')
+                ->count('daily_goal_id');
+
+            $currentProgress = $totalAssigned > 0 ? round(($totalApproved / $totalAssigned) * 100, 2) : 0;
+            $isKpiCompleted = ($totalAssigned > 0 && $totalApproved >= $totalAssigned);
+
+            // 7. AUTO-ADVANCE jika 100%
+            if ($isKpiCompleted) {
+                $this->advanceCustomerToNextKPI($customer, $currentKpiId);
+                
+                Log::info("✅ KPI Completed via Resubmit & Auto-Advanced", [
+                    'customer_id' => $customer->id,
+                    'progress_id' => $existingProgress->id,
+                    'kpi_id' => $currentKpiId,
+                ]);
+            }
+
+            DB::commit();
+            
+            return response()->json([
+                'status' => true,
+                'is_valid' => $isValid,
+                'message' => $reviewNote,
+                'resubmitted' => true,
+                'kpi_completed' => $isKpiCompleted,
+                'progress_percent' => $currentProgress,
+                'scoring' => $scoringResult,
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Progress resubmit error: " . $e->getMessage(), [
+                'progress_id' => $existingProgress->id,
+                'daily_goal_id' => $dailyGoal->id,
+                'customer_id' => $customer->id,
+            ]);
+            return response()->json([
+                'status' => false,
+                'is_valid' => false,
+                'error' => 'Terjadi kesalahan saat resubmit progress. Silakan coba lagi.'
             ], 500);
         }
     }
