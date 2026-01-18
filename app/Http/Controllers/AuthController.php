@@ -2,47 +2,44 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
+            'email' => ['required', 'email'],
+            'password' => ['required'],
         ]);
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user) {
-            throw ValidationException::withMessages([
-                'email' => ['Email tidak ditemukan dalam sistem.'],
-            ]);
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'message' => 'Invalid email or password'
+            ], 422);
         }
 
-        if (!Hash::check($request->password, $user->password)) {
-            throw ValidationException::withMessages([
-                'password' => ['Password yang Anda masukkan salah.'],
-            ]);
-        }
+        // Optional: hapus token lama biar tidak numpuk
+        $user->tokens()->delete();
 
-        // Buat token Sanctum
-        $token = $user->createToken('auth_token')->plainTextToken;
+        // Token khusus desktop / tauri
+        $token = $user->createToken('desktop')->plainTextToken;
 
         return response()->json([
-            'access_token' => $token,
-            'token_type' => 'Bearer',
+            'token' => $token,
             'user' => $user
         ]);
     }
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        if ($request->user()) {
+            $request->user()->currentAccessToken()?->delete();
+        }
 
         return response()->json([
             'message' => 'Logged out successfully'
