@@ -47,6 +47,15 @@ class DailyGoalController extends Controller
         'PUSKESMAS'        => 'PUSKESMAS'
     ];
 
+    // Mapping category ke daily_goal_type_id
+    $categoryToTypeMapping = [
+        'Pendidikan' => 1,
+        'Pemerintahan' => 2,
+        'Web Inquiry Corporate' => 3,
+        'Web Inquiry CNI' => 4,
+        'Web Inquiry C&I' => 4, // Handle typo
+    ];
+
     // 3. Ambil data PROGRESS yang sudah APPROVED
     $approvedByCustomer = Progress::where('user_id', $user->id)
         ->where('status', 'approved')
@@ -58,7 +67,7 @@ class DailyGoalController extends Controller
             return $items->groupBy('kpi_id')->map(fn($group) => $group->count());
         });
 
-    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $groupMapping) {
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $groupMapping, $categoryToTypeMapping) {
         $currentKpi = $customer->kpi;
         $currentKpiId = $customer->current_kpi_id;
         
@@ -67,8 +76,8 @@ class DailyGoalController extends Controller
         $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
 
         // Fungsi Filter Goals yang lebih tangguh
-        $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customer, $targetGoalGroup) {
-            return $allDailyGoals->filter(function($goal) use ($kpiId, $customer, $targetGoalGroup) {
+        $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customer, $targetGoalGroup, $categoryToTypeMapping) {
+            return $allDailyGoals->filter(function($goal) use ($kpiId, $customer, $targetGoalGroup, $categoryToTypeMapping) {
                 // Syarat 1: KPI ID harus cocok
                 if ($goal->kpi_id != $kpiId) return false;
 
@@ -77,8 +86,9 @@ class DailyGoalController extends Controller
                     return strtoupper($goal->sub_category) === strtoupper($targetGoalGroup);
                 }
 
-                // Syarat 3: Untuk kategori lain (Pendidikan, dll), gunakan daily_goal_type_id
-                return $goal->daily_goal_type_id == $customer->daily_goal_type_id;
+                // Syarat 3: Untuk kategori lain, cocokkan daily_goal_type_id berdasarkan category
+                $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+                return $goal->daily_goal_type_id == $expectedTypeId;
             });
         };
 
