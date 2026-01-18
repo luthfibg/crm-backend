@@ -623,7 +623,26 @@ class ProgressController extends Controller
                 'unit' => ['unit', 'jumlah', 'quantity', 'item'],
                 'pengadaan' => ['pengadaan', 'procurement', 'pembelian', 'purchase'],
                 'pengiriman' => ['pengiriman', 'delivery', 'kirim', 'distribusi'],
-                'pembayaran' => ['bayar', 'payment', 'invoice', 'pelunasan']
+                'pembayaran' => ['bayar', 'payment', 'invoice', 'pelunasan'],
+                'budget' => ['budget', 'anggaran', 'dana', 'alokasi', 'pagu'],
+                'sebesar' => ['sebesar', 'jumlah', 'total', 'nilai', 'angka'],
+                'senin' => ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'],
+                'sudah' => ['sudah', 'selesai', 'berhasil', 'sedang', 'telah', 'berikut', 'sebagai berikut'],
+                'survey' => ['survey', 'kunjungan', 'visit', 'observasi', 'inspeksi'],
+                'compro' => ['compro', 'profile', 'company', 'company profile', 'profil'],
+                'katalog' => ['katalog', 'produk', 'brosur', 'etalase', 'bmi', 'e-katalog', 'pilihan'],
+                'pejabat' => ['pejabat', 'ppk', 'pengadaan', 'komitmen', 'pokja', 'user', 'kabag', 'kepala'],
+                'mekanisme' => ['mekanisme', 'teknis', 'prosedur', 'cara', 'alur', 'proses'],
+                'spek' => ['spek', 'spesifikasi', 'teknis', 'kak', 'kebutuhan', 'ukuran', 'layout'],
+                'boq' => ['boq', 'bill of quantity', 'perhitungan', 'rincian', 'estimasi'],
+                'tender' => ['tender', 'lelang', 'pembanding', 'seleksi', 'tertutup', 'pl', 'penunjukkan'],
+                'klik' => ['klik', 'etalase', 'transaksi', 'checkout', 'pesanan'],
+                'spk' => ['spk', 'kontrak', 'perjanjian', 'surat perintah', 'tanda tangan'],
+                'bast' => ['bast', 'serah terima', 'selesai', 'instalasi', 'pemasangan'],
+                'payment' => ['payment', 'bayar', 'tagihan', 'transfer', 'pelunasan', 'cair'],
+                'po' => ['po', 'purchase order', 'pesanan', 'order'],
+                'dp' => ['dp', 'down payment', 'uang muka', 'panjar', 'transfer'],
+                'indent' => ['indent', 'stok', 'ready', 'lama', 'ketersediaan', 'leadtime'],
             ];
 
             $relevantKeywords = [];
