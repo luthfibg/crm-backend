@@ -18,10 +18,12 @@ class UserController extends Controller
 {
     /**
      * Display a listing of the resource.
+     * Only returns users with 'sales' role for SalesWorkspace chart and SalesPersonCard
      */
-    public function index()
+    public function index(Request $request)
     {
-        $users = UserResource::collection(User::all());
+        // Filter to only show sales users in the sales workspace
+        $users = UserResource::collection(User::where('role', 'sales')->get());
         return response()->json($users);
     }
 
