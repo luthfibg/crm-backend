@@ -21,5 +21,22 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Create test users with known passwords
+        \App\Models\User::create([
+            'name' => 'Admin User',
+            'email' => 'admin@mandiriartha.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+            'role' => 'administrator',
+            'phone_number' => '08123456789',
+        ]);
+
+        \App\Models\User::create([
+            'name' => 'Sales User',
+            'email' => 'sales@mandiriartha.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+            'role' => 'sales',
+            'phone_number' => '08123456789',
+        ]);
     }
 }

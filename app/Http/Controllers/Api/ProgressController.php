@@ -176,10 +176,40 @@ class ProgressController extends Controller
             // 6. CEK APAKAH KPI SUDAH 100%
             $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
             
-            $totalAssigned = DailyGoal::where('user_id', $actor->id)
+            // Mapping category ke daily_goal_type_id
+            $categoryToTypeMapping = [
+                'Pendidikan' => 1,
+                'Pemerintahan' => 2,
+                'Web Inquiry Corporate' => 3,
+                'Web Inquiry CNI' => 4,
+                'Web Inquiry C&I' => 4,
+            ];
+            
+            $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+            
+            $totalAssignedQuery = DailyGoal::where('user_id', $actor->id)
                 ->where('kpi_id', $currentKpiId)
-                ->where('description', 'NOT LIKE', 'Auto-generated%')
-                ->count();
+                ->where('description', 'NOT LIKE', 'Auto-generated%');
+                
+            // Filter berdasarkan category
+            if (strtolower($customer->category) === 'pemerintahan') {
+                $groupMapping = [
+                    'UKPBJ' => 'KEDINASAN',
+                    'RUMAH SAKIT' => 'KEDINASAN',
+                    'KANTOR KEDINASAN' => 'KEDINASAN',
+                    'KANTOR BALAI' => 'KEDINASAN',
+                    'KELURAHAN' => 'KECAMATAN',
+                    'KECAMATAN' => 'KECAMATAN',
+                    'PUSKESMAS' => 'PUSKESMAS'
+                ];
+                $rawSub = strtoupper($customer->sub_category ?? '');
+                $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
+                $totalAssignedQuery->where('sub_category', $targetGoalGroup);
+            } else {
+                $totalAssignedQuery->where('daily_goal_type_id', $expectedTypeId);
+            }
+            
+            $totalAssigned = $totalAssignedQuery->count();
 
             $totalApproved = Progress::where('customer_id', $customer->id)
                 ->where('kpi_id', $currentKpiId)
@@ -290,10 +320,40 @@ class ProgressController extends Controller
             // 6. CEK APAKAH KPI CURRENT SUDAH 100% APPROVED
             $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
             
-            $totalAssigned = DailyGoal::where('user_id', $actor->id)
+            // Mapping category ke daily_goal_type_id
+            $categoryToTypeMapping = [
+                'Pendidikan' => 1,
+                'Pemerintahan' => 2,
+                'Web Inquiry Corporate' => 3,
+                'Web Inquiry CNI' => 4,
+                'Web Inquiry C&I' => 4,
+            ];
+            
+            $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+            
+            $totalAssignedQuery = DailyGoal::where('user_id', $actor->id)
                 ->where('kpi_id', $currentKpiId)
-                ->where('description', 'NOT LIKE', 'Auto-generated%')
-                ->count();
+                ->where('description', 'NOT LIKE', 'Auto-generated%');
+                
+            // Filter berdasarkan category
+            if (strtolower($customer->category) === 'pemerintahan') {
+                $groupMapping = [
+                    'UKPBJ' => 'KEDINASAN',
+                    'RUMAH SAKIT' => 'KEDINASAN',
+                    'KANTOR KEDINASAN' => 'KEDINASAN',
+                    'KANTOR BALAI' => 'KEDINASAN',
+                    'KELURAHAN' => 'KECAMATAN',
+                    'KECAMATAN' => 'KECAMATAN',
+                    'PUSKESMAS' => 'PUSKESMAS'
+                ];
+                $rawSub = strtoupper($customer->sub_category ?? '');
+                $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
+                $totalAssignedQuery->where('sub_category', $targetGoalGroup);
+            } else {
+                $totalAssignedQuery->where('daily_goal_type_id', $expectedTypeId);
+            }
+            
+            $totalAssigned = $totalAssignedQuery->count();
 
             $totalApproved = Progress::where('customer_id', $customer->id)
                 ->where('kpi_id', $currentKpiId)
