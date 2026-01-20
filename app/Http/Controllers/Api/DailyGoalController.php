@@ -82,12 +82,21 @@ class DailyGoalController extends Controller
                 if ($goal->kpi_id != $kpiId) return false;
 
                 // Syarat 2: Jika Pemerintahan, cek sub_category mapping
-                if (strtolower($customer->category) === 'pemerintahan') {
+                if (strtolower($customer->category ?? '') === 'pemerintahan') {
+                    // Jika goal tidak punya sub_category, skip filter sub_category
+                    if (empty($goal->sub_category)) return true;
                     return strtoupper($goal->sub_category) === strtoupper($targetGoalGroup);
                 }
 
                 // Syarat 3: Untuk kategori lain, cocokkan daily_goal_type_id berdasarkan category
                 $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+                
+                // Jika expectedTypeId null (kategori tidak dikenal) atau goal tidak punya type_id,
+                // fallback: tampilkan semua goals untuk KPI tersebut
+                if ($expectedTypeId === null || $goal->daily_goal_type_id === null) {
+                    return true;
+                }
+                
                 return $goal->daily_goal_type_id == $expectedTypeId;
             });
         };
@@ -137,6 +146,8 @@ class DailyGoalController extends Controller
                 'description'       => $goal->description,
                 'input_type'        => $goal->input_type,
                 'is_completed'      => $progress && $progress->status === 'approved',
+                'is_rejected'       => $progress && $progress->status === 'rejected',
+                'progress_id'       => $progress ? $progress->id : null,
                 'progress_status'   => $progress ? $progress->status : null,
             ];
         })->values();
