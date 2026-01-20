@@ -15,6 +15,12 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
+        \Log::info('LOGIN ATTEMPT', [
+            'email' => $request->email,
+            'db' => config('database.connections.mysql.database'),
+            'host' => config('database.connections.mysql.host'),
+        ]);
+
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
