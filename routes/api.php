@@ -12,14 +12,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::options('{any}', function () {
-    return response()->json();
+
+    return response()->json(null, 204);
+    
 })->where('any', '.*');
 
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
 Route::resource('users', UserController::class);
 Route::middleware('auth:sanctum')->group(function () {
