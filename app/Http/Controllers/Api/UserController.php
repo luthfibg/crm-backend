@@ -52,6 +52,43 @@ class UserController extends Controller
             ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])
             ->count();
 
+        // Get hot and closing prospects
+        $hotProspects = Customer::where('user_id', $userId)->where('status', 'Hot Prospect')->count();
+        $closedDeals = Customer::where('user_id', $userId)->where('status', 'Closed')->count();
+        
+        // Count customers at different KPI stages (assuming KPI IDs: 1=Visit1, 2=Visit2, 3=Visit3, 4=Closing, 5=Repeat Order)
+        $visit1Count = Customer::where('user_id', $userId)->where('current_kpi_id', 1)->count();
+        $visit2Count = Customer::where('user_id', $userId)->where('current_kpi_id', 2)->count();
+        $visit3Count = Customer::where('user_id', $userId)->where('current_kpi_id', 3)->count();
+        $closingCount = Customer::where('user_id', $userId)->where('current_kpi_id', 4)->count();
+        $repeatCount = Customer::where('user_id', $userId)->where('current_kpi_id', 5)->count();
+        
+        // Count progress activities (social media posts, activities, etc.)
+        // Assuming progress_value or specific KPI IDs represent different activities
+        // You may need to adjust based on your actual data structure
+        $socialPosts = Progress::where('user_id', $userId)
+            ->where('kpi_id', 7) // Assuming KPI 7 is for social media
+            ->count();
+        
+        $activityCount = Progress::where('user_id', $userId)
+            ->where('kpi_id', 8) // Assuming KPI 8 is for general activities
+            ->count();
+        
+        // Calculate sales achieved (sum of closed deals value or use a specific field)
+        // You may need to add a 'value' or 'amount' field to Customer model
+        $salesAchieved = Customer::where('user_id', $userId)
+            ->where('status', 'Closed')
+            ->sum('earned_points'); // Or use a dedicated sales_value field if available
+        
+        // Calculate months active (from user creation date)
+        $userCreatedAt = new \DateTime($user->created_at);
+        $now = new \DateTime();
+        $interval = $userCreatedAt->diff($now);
+        $monthsActive = max(1, ($interval->y * 12) + $interval->m);
+        
+        // Set a default yearly target (you may want to add this to users table)
+        $yearlyTarget = $user->yearly_target ?? 100000000;
+
         // Opsional: Tetap update points (pastikan kolom ini ada di table users)
         $user->points = (int) $totalPoints;
         $user->save();
@@ -62,10 +99,21 @@ class UserController extends Controller
             'totalCustomers' => $totalCustomers,
             'activeCustomers' => $activeCustomers,
             'badge' => $user->badge,
-            // Pastikan field di bawah ini ada agar Frontend tidak bernilai 0
             'new_prospects' => $activeCustomers, 
-            'hot_prospects' => Customer::where('user_id', $userId)->where('status', 'Hot Prospect')->count(),
-            'closed_deals' => Customer::where('user_id', $userId)->where('status', 'Closed')->count(),
+            'hot_prospects' => $hotProspects,
+            'closed_deals' => $closedDeals,
+            // Additional KPI metrics for heatmap
+            'visit_1_count' => $visit1Count,
+            'visit_2_count' => $visit2Count,
+            'visit_3_count' => $visit3Count,
+            'closing_count' => $closingCount,
+            'repeat_count' => $repeatCount,
+            'closed_count' => $closedDeals,
+            'social_posts' => $socialPosts,
+            'activity_count' => $activityCount,
+            'sales_achieved' => $salesAchieved,
+            'yearly_target' => $yearlyTarget,
+            'months_active' => $monthsActive,
         ]);
     }
 

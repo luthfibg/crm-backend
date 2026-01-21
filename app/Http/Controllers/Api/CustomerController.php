@@ -28,6 +28,11 @@ class CustomerController extends Controller
         // Administrator can view all customers; other roles only their own
         if ($user->role !== 'administrator') {
             $query->where('user_id', $user->id);
+        } else {
+            // If admin provides a user_id filter, apply it
+            if ($request->has('user_id') && $request->query('user_id') !== '') {
+                $query->where('user_id', $request->query('user_id'));
+            }
         }
 
         // Use pagination for lists (per_page query param, defaults to 15)
