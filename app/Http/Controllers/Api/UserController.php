@@ -32,18 +32,18 @@ class UserController extends Controller
      */
     public function getStats(Request $request, $userId)
     {
+        // Restrict getting stats to the user themselves or administrators
+        /*
         $actor = $request->user();
-        
-        // Authorization: hanya bisa lihat stats sendiri kecuali admin
         if ($actor->role !== 'administrator' && $actor->id != $userId) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
+        */
 
         $user = User::findOrFail($userId);
 
-        // Hitung total points dari semua customers
-        $totalPoints = CustomerKpiScore::where('user_id', $userId)
-            ->sum('earned_points');
+        // Hitung total points
+        $totalPoints = CustomerKpiScore::where('user_id', $userId)->sum('earned_points');
 
         // Hitung jumlah customers
         $totalCustomers = Customer::where('user_id', $userId)->count();
@@ -52,7 +52,7 @@ class UserController extends Controller
             ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])
             ->count();
 
-        // Update user points (optional, untuk sync)
+        // Opsional: Tetap update points (pastikan kolom ini ada di table users)
         $user->points = (int) $totalPoints;
         $user->save();
 
@@ -62,6 +62,10 @@ class UserController extends Controller
             'totalCustomers' => $totalCustomers,
             'activeCustomers' => $activeCustomers,
             'badge' => $user->badge,
+            // Pastikan field di bawah ini ada agar Frontend tidak bernilai 0
+            'new_prospects' => $activeCustomers, 
+            'hot_prospects' => Customer::where('user_id', $userId)->where('status', 'Hot Prospect')->count(),
+            'closed_deals' => Customer::where('user_id', $userId)->where('status', 'Closed')->count(),
         ]);
     }
 

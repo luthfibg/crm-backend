@@ -26,6 +26,7 @@ class Customer extends Model
         'earned_points',
         'max_points',
         'score_percentage',
+        'created_at',
     ];
 
     public function user(): BelongsTo {
