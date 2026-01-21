@@ -25,12 +25,17 @@ Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,
 
 Route::resource('users', UserController::class);
 Route::middleware('auth:sanctum')->group(function () {
+    // Custom customer routes (must be before resource to avoid conflict)
+    Route::get('customers/available-for-prospect', [CustomerController::class, 'getAvailableForProspect']);
+    Route::post('customers/{customer}/convert-to-prospect', [CustomerController::class, 'convertToProspect']);
     Route::resource('customers', CustomerController::class);
     Route::resource('kpis', KPIController::class);
     Route::resource('daily-goals', DailyGoalController::class);
     // additional helper route to fetch daily goals by user + kpi
     Route::get('daily-goals/user/{user}/kpi/{kpi}', [DailyGoalController::class, 'byUserKpi'])->name('daily-goals.byUserKpi');
     Route::resource('badges', BadgeController::class);
+    // Custom progress routes (must be before resource to avoid conflict)
+    Route::get('/progress/last-followup', [ProgressController::class, 'getLastFollowUp']);
     Route::resource('progress', ProgressController::class);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/progress/submit', [ProgressController::class, 'store']);

@@ -67,7 +67,18 @@ class DailyGoalController extends Controller
             return $items->groupBy('kpi_id')->map(fn($group) => $group->count());
         });
 
-    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $groupMapping, $categoryToTypeMapping) {
+    // 4. Ambil last follow-up time per customer (waktu terakhir input daily goal)
+    $lastFollowUpByCustomer = Progress::where('user_id', $user->id)
+        ->whereNotNull('time_completed')
+        ->whereIn('customer_id', $customers->pluck('id'))
+        ->orderBy('time_completed', 'desc')
+        ->get()
+        ->groupBy('customer_id')
+        ->map(function($items) {
+            return $items->first()->time_completed;
+        });
+
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
         $currentKpi = $customer->kpi;
         $currentKpiId = $customer->current_kpi_id;
         
@@ -172,6 +183,7 @@ class DailyGoalController extends Controller
                 'approved_count' => (int) $statsCurrent['approved_count'],
                 'assigned_count' => (int) $statsCurrent['assigned_count'],
             ],
+            'last_followup_at' => $lastFollowUpByCustomer[$customer->id] ?? null,
         ];
     });
 

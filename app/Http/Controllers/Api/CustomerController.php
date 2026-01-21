@@ -51,7 +51,8 @@ class CustomerController extends Controller
             'position' => 'nullable|string',
             'email' => 'nullable|email',
             'phone_number' => 'required',
-            'notes' => 'nullable'
+            'notes' => 'nullable',
+            'created_at' => 'nullable|date'
         ]);
 
         if ($validator->fails()) {
@@ -139,6 +140,90 @@ class CustomerController extends Controller
         $customer = Customer::findOrFail($id);
         $customer->delete();
         return response()->json(null, 204);
+    }
+
+    /**
+     * Get customers that are not yet prospected (available to add as prospect)
+     * Filters out customers with status: New, Warm Prospect, Hot Prospect
+     */
+    public function getAvailableForProspect(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $query = Customer::query();
+
+        // Only get customers belonging to the current user (unless admin)
+        if ($user->role !== 'administrator') {
+            $query->where('user_id', $user->id);
+        }
+
+        // Filter out customers that are already prospects
+        // Prospects have status: New, Warm Prospect, Hot Prospect
+        $prospectStatuses = ['New', 'Warm Prospect', 'Hot Prospect'];
+        $query->whereNotIn('status', $prospectStatuses);
+
+        // Also include customers with null status (never been prospected)
+        $query->orWhere(function($q) use ($user, $prospectStatuses) {
+            if ($user->role !== 'administrator') {
+                $q->where('user_id', $user->id);
+            }
+            $q->whereNull('status');
+        });
+
+        $customers = $query->get();
+
+        return CustomerResource::collection($customers);
+    }
+
+    /**
+     * Convert existing customer to prospect (set to KPI 1 / New status)
+     */
+    public function convertToProspect(Request $request, $customerId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $customer = Customer::findOrFail($customerId);
+
+        // Authorization: only owner or admin can convert
+        if ($user->role !== 'administrator' && $customer->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        // Check if already a prospect
+        $prospectStatuses = ['New', 'Warm Prospect', 'Hot Prospect'];
+        if (in_array($customer->status, $prospectStatuses)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Customer sudah menjadi prospek aktif'
+            ], 400);
+        }
+
+        // Convert to prospect
+        $customer->current_kpi_id = 1;
+        $customer->kpi_id = 1;
+        $customer->status = 'New';
+        $customer->status_changed_at = now();
+        $customer->save();
+
+        // Ensure user has KPI 1 attached
+        $user->kpis()->syncWithoutDetaching([1]);
+
+        \Log::info("Customer converted to prospect", [
+            'customer_id' => $customer->id,
+            'converted_by' => $user->id
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Customer berhasil ditambahkan ke pipeline',
+            'customer' => new CustomerResource($customer)
+        ], 200);
     }
 
     /**

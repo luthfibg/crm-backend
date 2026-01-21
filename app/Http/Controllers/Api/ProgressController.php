@@ -33,6 +33,39 @@ class ProgressController extends Controller
     }
 
     /**
+     * Get the last follow-up time for the current user
+     * Returns the most recent time_completed from progresses table
+     */
+    public function getLastFollowUp(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // Get the most recent progress entry for this user
+        $lastProgress = Progress::where('user_id', $user->id)
+            ->whereNotNull('time_completed')
+            ->orderBy('time_completed', 'desc')
+            ->first();
+
+        if (!$lastProgress) {
+            return response()->json([
+                'has_followup' => false,
+                'last_followup_at' => null,
+                'message' => 'Belum ada FU yang tercatat'
+            ]);
+        }
+
+        return response()->json([
+            'has_followup' => true,
+            'last_followup_at' => $lastProgress->time_completed,
+            'customer_id' => $lastProgress->customer_id,
+            'daily_goal_id' => $lastProgress->daily_goal_id
+        ]);
+    }
+
+    /**
      * ⭐ STORE: Submit progress PERTAMA KALI
      * 
      * Flow:
