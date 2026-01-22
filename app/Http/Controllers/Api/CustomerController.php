@@ -25,9 +25,18 @@ class CustomerController extends Controller
 
         $query = Customer::query();
 
-        // Administrator can view all customers; other roles only their own
+        // Allow dashboard access for all sales if ?dashboard=1
         if ($user->role !== 'administrator') {
-            $query->where('user_id', $user->id);
+            if ($request->query('dashboard') == 1) {
+                // Allow access to all customers for dashboard
+                if ($request->has('user_id') && $request->query('user_id') !== '') {
+                    $query->where('user_id', $request->query('user_id'));
+                }
+                // else: all customers (for heatmap, etc)
+            } else {
+                // Default: only own customers
+                $query->where('user_id', $user->id);
+            }
         } else {
             // If admin provides a user_id filter, apply it
             if ($request->has('user_id') && $request->query('user_id') !== '') {
@@ -288,6 +297,55 @@ class CustomerController extends Controller
             'message' => 'Berhasil skip ke KPI berikutnya',
             'new_kpi' => $nextKpi->description,
             'new_status' => $customer->status
+        ]);
+    }
+
+    /**
+     * Get completed sales history (customers with After Sales status)
+     */
+    public function getSalesHistory(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $query = Customer::with(['user', 'kpi'])
+            ->where('status', 'Completed');
+
+        // Filter by user if not admin
+        if ($user->role !== 'administrator') {
+            $query->where('user_id', $user->id);
+        }
+
+        // Order by completion date (when status changed to After Sales)
+        $query->orderBy('status_changed_at', 'desc');
+
+        $perPage = (int) $request->query('per_page', 15);
+        $sales = $query->paginate(max(1, $perPage));
+
+        // Transform data for frontend
+        $salesData = $sales->getCollection()->map(function($customer) {
+            return [
+                'id' => $customer->id,
+                'pic' => $customer->pic,
+                'institution' => $customer->institution,
+                'category' => $customer->category,
+                'sales_person' => $customer->user ? $customer->user->name : 'Unknown',
+                'completed_at' => $customer->status_changed_at,
+                'final_kpi' => $customer->kpi ? $customer->kpi->description : 'Unknown',
+                'notes' => $customer->notes
+            ];
+        });
+
+        return response()->json([
+            'data' => $salesData,
+            'meta' => [
+                'current_page' => $sales->currentPage(),
+                'last_page' => $sales->lastPage(),
+                'total' => $sales->total(),
+                'per_page' => $sales->perPage()
+            ]
         ]);
     }
 }

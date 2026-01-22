@@ -22,9 +22,26 @@ class UserController extends Controller
      */
     public function index(Request $request)
     {
-        // Filter to only show sales users in the sales workspace
-        $users = UserResource::collection(User::where('role', 'sales')->get());
-        return response()->json($users);
+        // Allow dashboard access for all sales if ?dashboard=1
+        $actor = $request->user();
+        if (!$actor) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+        if ($actor->role !== 'administrator') {
+            if ($request->query('dashboard') == 1) {
+                // Allow for dashboard: show all sales
+                $users = UserResource::collection(User::where('role', 'sales')->get());
+                return response()->json($users);
+            } else {
+                // Only self
+                $users = UserResource::collection(User::where('id', $actor->id)->get());
+                return response()->json($users);
+            }
+        } else {
+            // Admin: show all sales
+            $users = UserResource::collection(User::where('role', 'sales')->get());
+            return response()->json($users);
+        }
     }
 
     /**
@@ -32,13 +49,15 @@ class UserController extends Controller
      */
     public function getStats(Request $request, $userId)
     {
-        // Restrict getting stats to the user themselves or administrators
-        /*
+        // Allow dashboard access for all sales if ?dashboard=1
         $actor = $request->user();
         if ($actor->role !== 'administrator' && $actor->id != $userId) {
-            return response()->json(['message' => 'Forbidden'], 403);
+            if ($request->query('dashboard') == 1) {
+                // Allow for dashboard
+            } else {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
         }
-        */
 
         $user = User::findOrFail($userId);
 

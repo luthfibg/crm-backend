@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
 use App\Models\Progress;
 use App\Models\ProgressAttachment;
 use App\Models\DailyGoal;
@@ -628,100 +629,145 @@ class ProgressController extends Controller
             return ['is_valid' => true, 'message' => 'Sistem: File berhasil diterima'];
         }
 
-        // 3. VALIDASI TEXT - Keyword Matching
+        // 3. VALIDASI TEXT - AI-powered understanding
         if ($inputType === 'text') {
             if (!$evidence || strlen(trim($evidence)) < 5) {
                 return ['is_valid' => false, 'message' => 'Sistem: Jawaban terlalu pendek (min 5 karakter)'];
             }
 
-            $description = strtolower($dailyGoal->description);
-            $evidenceText = strtolower($evidence);
-
-            $keywords = [
-                'company profile' => ['profil', 'perusahaan', 'company', 'profile', 'cv', 'pt', 'perkenalan'],
-                'kontak' => ['kontak', 'nomor', 'telepon', 'whatsapp', 'email', 'hp'],
-                'ketua' => ['ketua', 'kepala', 'chairman', 'direktur', 'pimpinan'],
-                'anggota' => ['anggota', 'member', 'peserta', 'jumlah', 'total'],
-                'jadwal' => ['jadwal', 'tanggal', 'waktu', 'schedule', 'agenda'],
-                'roadshow' => ['roadshow', 'presentasi', 'sosialisasi', 'demo'],
-                'support' => ['support', 'dukungan', 'bantuan', 'assistance'],
-                'dealing' => ['dealing', 'negosiasi', 'kesepakatan', 'agreement'],
-                'hot prospect' => ['hot', 'prospek', 'potensial', 'berminat'],
-                'poc' => ['poc', 'proof of concept', 'uji coba', 'trial'],
-                'training' => ['training', 'pelatihan', 'workshop', 'bimbingan'],
-                'guru' => ['guru', 'teacher', 'pengajar', 'dosen'],
-                'penawaran' => ['penawaran', 'proposal', 'quotation', 'surat'],
-                'harga' => ['harga', 'price', 'biaya', 'cost', 'tarif'],
-                'tawar' => ['tawar', 'nego', 'diskon', 'potongan'],
-                'unit' => ['unit', 'jumlah', 'quantity', 'item'],
-                'pengadaan' => ['pengadaan', 'procurement', 'pembelian', 'purchase'],
-                'pengiriman' => ['pengiriman', 'delivery', 'kirim', 'distribusi'],
-                'pembayaran' => ['bayar', 'payment', 'invoice', 'pelunasan'],
-                'budget' => ['budget', 'anggaran', 'dana', 'alokasi', 'pagu'],
-                'sebesar' => ['sebesar', 'jumlah', 'total', 'nilai', 'angka'],
-                'senin' => ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'],
-                'sudah' => ['sudah', 'selesai', 'berhasil', 'sedang', 'telah', 'berikut', 'sebagai berikut'],
-                'survey' => ['survey', 'kunjungan', 'visit', 'observasi', 'inspeksi'],
-                'compro' => ['compro', 'profile', 'company', 'company profile', 'profil'],
-                'katalog' => ['katalog', 'produk', 'brosur', 'etalase', 'bmi', 'e-katalog', 'pilihan'],
-                'pejabat' => ['pejabat', 'ppk', 'pengadaan', 'komitmen', 'pokja', 'user', 'kabag', 'kepala'],
-                'mekanisme' => ['mekanisme', 'teknis', 'prosedur', 'cara', 'alur', 'proses'],
-                'spek' => ['spek', 'spesifikasi', 'teknis', 'kak', 'kebutuhan', 'ukuran', 'layout'],
-                'boq' => ['boq', 'bill of quantity', 'perhitungan', 'rincian', 'estimasi'],
-                'tender' => ['tender', 'lelang', 'pembanding', 'seleksi', 'tertutup', 'pl', 'penunjukkan'],
-                'klik' => ['klik', 'etalase', 'transaksi', 'checkout', 'pesanan'],
-                'spk' => ['spk', 'kontrak', 'perjanjian', 'surat perintah', 'tanda tangan'],
-                'bast' => ['bast', 'serah terima', 'selesai', 'instalasi', 'pemasangan'],
-                'payment' => ['payment', 'bayar', 'tagihan', 'transfer', 'pelunasan', 'cair'],
-                'po' => ['po', 'purchase order', 'pesanan', 'order'],
-                'dp' => ['dp', 'down payment', 'uang muka', 'panjar', 'transfer'],
-                'indent' => ['indent', 'stok', 'ready', 'lama', 'ketersediaan', 'leadtime'],
-            ];
-
-            $relevantKeywords = [];
-            foreach ($keywords as $key => $wordList) {
-                if (str_contains($description, $key)) {
-                    $relevantKeywords = array_merge($relevantKeywords, $wordList);
+            // Use OpenAI to analyze if the mission was completed
+            try {
+                $openaiApiKey = env('OPENAI_API_KEY');
+                if (!$openaiApiKey) {
+                    // Fallback to simple keyword check if no API key
+                    return $this->fallbackTextValidation($evidence, $dailyGoal);
                 }
-            }
 
-            if (empty($relevantKeywords)) {
-                if (strlen(trim($evidence)) >= 10) {
-                    return ['is_valid' => true, 'message' => 'Sistem: Jawaban diterima'];
+                $prompt = "Analyze if the following user input indicates successful completion of the mission: '{$dailyGoal->description}'.\n\nUser input: '{$evidence}'\n\nRespond with only 'APPROVED' or 'REJECTED' followed by a brief reason (max 50 words). Consider the context and whether the user explains how the mission objectives were met.";
+
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $openaiApiKey,
+                    'Content-Type' => 'application/json',
+                ])->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => 'gpt-3.5-turbo',
+                    'messages' => [
+                        ['role' => 'user', 'content' => $prompt]
+                    ],
+                    'max_tokens' => 100,
+                    'temperature' => 0.3,
+                ]);
+
+                if ($response->successful()) {
+                    $result = $response->json();
+                    $aiResponse = trim($result['choices'][0]['message']['content'] ?? '');
+
+                    if (str_starts_with(strtoupper($aiResponse), 'APPROVED')) {
+                        $reason = trim(substr($aiResponse, 8));
+                        return ['is_valid' => true, 'message' => 'Sistem: ' . ($reason ?: 'Misi disetujui berdasarkan analisis AI')];
+                    } elseif (str_starts_with(strtoupper($aiResponse), 'REJECTED')) {
+                        $reason = trim(substr($aiResponse, 8));
+                        return ['is_valid' => false, 'message' => 'Sistem: ' . ($reason ?: 'Misi ditolak berdasarkan analisis AI')];
+                    }
                 }
-                return ['is_valid' => false, 'message' => 'Sistem: Jawaban kurang detail (min 10 karakter)'];
-            }
 
-            $matchedKeywords = [];
-            foreach ($relevantKeywords as $keyword) {
-                if (str_contains($evidenceText, $keyword)) {
-                    $matchedKeywords[] = $keyword;
-                }
-            }
+                // If API fails, fallback
+                return $this->fallbackTextValidation($evidence, $dailyGoal);
 
-            if (!empty($matchedKeywords)) {
-                return [
-                    'is_valid' => true,
-                    'message' => 'Sistem: Relevan - ' . implode(', ', array_slice($matchedKeywords, 0, 2))
-                ];
+            } catch (\Exception $e) {
+                Log::error('OpenAI API error: ' . $e->getMessage());
+                return $this->fallbackTextValidation($evidence, $dailyGoal);
             }
-
-            return [
-                'is_valid' => false,
-                'message' => 'Sistem: Jawaban tidak relevan. Harap sertakan: ' . implode(', ', array_slice($relevantKeywords, 0, 3))
-            ];
         }
 
         return ['is_valid' => true, 'message' => 'Sistem: Data diterima'];
     }
 
     /**
-     * AUTO-ADVANCE customer ke KPI berikutnya
+     * Fallback text validation using improved keyword matching
+     */
+    private function fallbackTextValidation($evidence, $dailyGoal)
+    {
+        $evidenceText = strtolower($evidence);
+        $description = strtolower($dailyGoal->description);
+
+        // Simple completion indicators
+        $completionIndicators = [
+            'sudah selesai', 'berhasil', 'selesai', 'disetujui', 'approved', 'ok', 'oke', 'deal', 'setuju',
+            'lancar', 'sukses', 'tercapai', 'terpenuhi', 'memenuhi', 'bagus', 'baik', 'mantap', 'siap', 'done'
+        ];
+
+        $failureIndicators = [
+            'belum', 'gagal', 'tidak', 'kurang', 'belum selesai', 'belum berhasil', 'belum tercapai'
+        ];
+
+        $completionCount = 0;
+        $failureCount = 0;
+
+        foreach ($completionIndicators as $indicator) {
+            if (str_contains($evidenceText, $indicator)) {
+                $completionCount++;
+            }
+        }
+
+        foreach ($failureIndicators as $indicator) {
+            if (str_contains($evidenceText, $indicator)) {
+                $failureCount++;
+            }
+        }
+
+        // Analyze by sentences - look for explanations of successful completion
+        $sentences = preg_split('/[.!?\n]+/', $evidenceText);
+        $positiveSentences = 0;
+        $negativeSentences = 0;
+
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if (empty($sentence)) continue;
+
+            $sentenceCompletion = 0;
+            $sentenceFailure = 0;
+
+            foreach ($completionIndicators as $indicator) {
+                if (str_contains($sentence, $indicator)) {
+                    $sentenceCompletion++;
+                }
+            }
+
+            foreach ($failureIndicators as $indicator) {
+                if (str_contains($sentence, $indicator)) {
+                    $sentenceFailure++;
+                }
+            }
+
+            if ($sentenceCompletion > $sentenceFailure) {
+                $positiveSentences++;
+            } elseif ($sentenceFailure > $sentenceCompletion) {
+                $negativeSentences++;
+            }
+        }
+
+        // Decision logic
+        if ($completionCount > $failureCount && $positiveSentences >= $negativeSentences) {
+            return ['is_valid' => true, 'message' => 'Sistem: Indikasi penyelesaian misi terdeteksi'];
+        } elseif ($failureCount > $completionCount || $negativeSentences > $positiveSentences) {
+            return ['is_valid' => false, 'message' => 'Sistem: Misi belum terpenuhi berdasarkan penjelasan'];
+        }
+
+        // If unclear, check minimum length
+        if (strlen(trim($evidence)) >= 20) {
+            return ['is_valid' => true, 'message' => 'Sistem: Jawaban diterima (perlu verifikasi manual)'];
+        }
+
+        return ['is_valid' => false, 'message' => 'Sistem: Jawaban kurang detail tentang penyelesaian misi'];
+    }
+
+    /**
+     * AUTO-ADVANCE customer ke KPI berikutnya atau mark as completed
      */
     private function advanceCustomerToNextKPI($customer, $currentKpiId)
     {
         $currentKpi = KPI::find($currentKpiId);
-        
+
         $nextKpi = KPI::where('sequence', '>', $currentKpi->sequence)
             ->orderBy('sequence', 'asc')
             ->first();
@@ -734,7 +780,7 @@ class ProgressController extends Controller
                 'deal' => 'Deal Won',
                 'after_sales' => 'After Sales'
             ];
-            
+
             $customer->current_kpi_id = $nextKpi->id;
             $customer->kpi_id = $nextKpi->id;
             $customer->status = $statusMap[$nextKpi->code] ?? $customer->status;
@@ -746,6 +792,17 @@ class ProgressController extends Controller
                 'old_kpi' => $currentKpi->code,
                 'new_kpi' => $nextKpi->code,
                 'new_status' => $customer->status
+            ]);
+        } else {
+            // No next KPI - this is the final completion (After Sales done)
+            $customer->status = 'Completed';
+            $customer->status_changed_at = now();
+            $customer->save();
+
+            Log::info("✅ Customer sale completed and moved to history", [
+                'customer_id' => $customer->id,
+                'final_kpi' => $currentKpi->code,
+                'status' => 'Completed'
             ]);
         }
     }
