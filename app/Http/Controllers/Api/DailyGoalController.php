@@ -3,13 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Progress;
+use App\Models\ProgressAttachment;
 use App\Models\DailyGoal;
 use App\Models\User;
 use App\Models\KPI;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\DB; 
+use Illuminate\Support\Facades\DB;
 
 class DailyGoalController extends Controller
 {
@@ -26,10 +27,13 @@ class DailyGoalController extends Controller
     $user = $request->user();
     if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
 
-    // Ambil customer dengan relasi KPI saat ini
+    // Ambil customer dengan relasi KPI saat ini (exclude completed sales)
     $query = \App\Models\Customer::with('kpi')
-        ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect']);
-    $customers = ($user->role === 'administrator') ? $query->get() : $user->customers()->with('kpi')->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect'])->get();
+        ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])
+        ->where('status', '!=', 'Completed');
+    $customers = ($user->role === 'administrator') ?
+        $query->get() :
+        $user->customers()->with('kpi')->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
 
     // 1. Ambil Master Daily Goals (Gunakan WHERE IN kpi_id agar lebih cepat)
     $allDailyGoals = DailyGoal::where('user_id', $user->id)
@@ -151,7 +155,19 @@ class DailyGoalController extends Controller
                 ->where('user_id', $user->id)
                 ->orderBy('created_at', 'desc')
                 ->first();
-            
+
+            $userInput = '';
+            if ($progress) {
+                $attachment = ProgressAttachment::where('progress_id', $progress->id)->first();
+                if ($attachment) {
+                    if (in_array($attachment->type, ['text', 'phone'])) {
+                        $userInput = $attachment->content;
+                    } elseif (in_array($attachment->type, ['file', 'image', 'video'])) {
+                        $userInput = $attachment->original_name ?? basename($attachment->file_path ?? '');
+                    }
+                }
+            }
+
             return [
                 'id'                => $goal->id,
                 'description'       => $goal->description,
@@ -160,6 +176,7 @@ class DailyGoalController extends Controller
                 'is_rejected'       => $progress && $progress->status === 'rejected',
                 'progress_id'       => $progress ? $progress->id : null,
                 'progress_status'   => $progress ? $progress->status : null,
+                'user_input'        => $userInput,
             ];
         })->values();
 
@@ -174,6 +191,7 @@ class DailyGoalController extends Controller
                 'category'     => $customer->category,
                 'sub_category' => $customer->sub_category,
                 'status'       => $customer->status,
+                'status_changed_at' => $customer->status_changed_at,
             ],
             'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
             'kpi_progress_history' => $kpiProgress,

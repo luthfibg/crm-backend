@@ -14,8 +14,6 @@ class CustomerResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $isAdmin = $request->user() && $request->user()->role === 'administrator';
-
         return [
             'id' => $this->id,
             'pic' => $this->pic,
@@ -27,9 +25,10 @@ class CustomerResource extends JsonResource
             'category' => $this->category,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
-            // Only include these for administrators
-            'user_id' => $this->when($isAdmin, $this->user_id),
-            'kpi_id' => $this->when($isAdmin, $this->kpi_id),
+            'status' => $this->status,
+            'status_changed_at' => $this->status_changed_at,
+            'user_id' => $this->user_id, // Always include user_id for debugging and mapping
+            'kpi_id' => $this->kpi_id,
         ];
     }
 }
