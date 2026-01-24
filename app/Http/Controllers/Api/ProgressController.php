@@ -251,11 +251,9 @@ class ProgressController extends Controller
             $currentProgress = $totalAssigned > 0 ? round(($totalApproved / $totalAssigned) * 100, 2) : 0;
             $isKpiCompleted = ($totalAssigned > 0 && $totalApproved >= $totalAssigned);
 
-            // 7. AUTO-ADVANCE jika 100%
+            // 7. ⭐ PERUBAHAN: Jangan auto-advance, tapi return indicator bahwa summary diperlukan
             if ($isKpiCompleted) {
-                $this->advanceCustomerToNextKPI($customer, $currentKpiId);
-                
-                Log::info("✅ KPI Completed via Update & Auto-Advanced", [
+                Log::info("✅ KPI Completed via Update - Waiting for Summary", [
                     'customer_id' => $customer->id,
                     'progress_id' => $progress->id,
                     'kpi_id' => $currentKpiId,
@@ -271,6 +269,7 @@ class ProgressController extends Controller
                 'is_valid' => $isValid, 
                 'message' => $reviewNote,
                 'kpi_completed' => $isKpiCompleted,
+                'summary_required' => $isKpiCompleted, // ⭐ Indicator bahwa user harus input summary
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
                 'user_input' => $latestAttachment?->content,
@@ -397,13 +396,12 @@ class ProgressController extends Controller
 
             $currentProgress = $totalAssigned > 0 ? round(($totalApproved / $totalAssigned) * 100, 2) : 0;
 
-            // 7. STRICT MODE: HANYA NAIK JIKA 100% APPROVED
+            // 7. STRICT MODE: HANYA NAIK JIKA 100% APPROVED + SUMMARY SUBMITTED
             $isKpiCompleted = ($totalAssigned > 0 && $totalApproved >= $totalAssigned);
 
+            // ⭐ PERUBAHAN: Jangan auto-advance, tapi return indicator bahwa summary diperlukan
             if ($isKpiCompleted) {
-                $this->advanceCustomerToNextKPI($customer, $currentKpiId);
-                
-                Log::info("✅ KPI Completed & Auto-Advanced", [
+                Log::info("✅ KPI Completed - Waiting for Summary", [
                     'customer_id' => $customer->id,
                     'kpi_id' => $currentKpiId,
                     'progress' => $currentProgress . '%'
@@ -420,6 +418,7 @@ class ProgressController extends Controller
                 'is_valid' => $isValid, 
                 'message' => $reviewNote,
                 'kpi_completed' => $isKpiCompleted,
+                'summary_required' => $isKpiCompleted, // ⭐ Indicator bahwa user harus input summary
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
                 'user_input' => $latestAttachment?->content 
@@ -550,11 +549,9 @@ class ProgressController extends Controller
             $currentProgress = $totalAssigned > 0 ? round(($totalApproved / $totalAssigned) * 100, 2) : 0;
             $isKpiCompleted = ($totalAssigned > 0 && $totalApproved >= $totalAssigned);
 
-            // 7. AUTO-ADVANCE jika 100%
+            // 7. ⭐ PERUBAHAN: Jangan auto-advance, tapi return indicator bahwa summary diperlukan
             if ($isKpiCompleted) {
-                $this->advanceCustomerToNextKPI($customer, $currentKpiId);
-                
-                Log::info("✅ KPI Completed via Resubmit & Auto-Advanced", [
+                Log::info("✅ KPI Completed via Resubmit - Waiting for Summary", [
                     'customer_id' => $customer->id,
                     'progress_id' => $existingProgress->id,
                     'kpi_id' => $currentKpiId,
@@ -573,6 +570,7 @@ class ProgressController extends Controller
                 'message' => $reviewNote,
                 'resubmitted' => true,
                 'kpi_completed' => $isKpiCompleted,
+                'summary_required' => $isKpiCompleted, // ⭐ Indicator bahwa user harus input summary
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
                 'user_input' => $latestAttachment?->content 

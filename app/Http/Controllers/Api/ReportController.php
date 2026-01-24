@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Customer;
+use App\Models\CustomerSummary;
+use App\Models\User;
 use App\Models\DailyGoal;
 use App\Models\Progress;
 use Illuminate\Support\Facades\View;
@@ -60,21 +62,26 @@ class ReportController extends Controller
 
         // Scope customers
         if ($actor->role === 'administrator') {
-            $customers = Customer::with(['kpi','progresses'=>function($q) use ($start,$end){
-                $q->whereBetween('time_completed', [$start, $end]);
-            }])->get();
+            $customers = Customer::with(['user', 'kpi', 'summary'])
+                ->with(['progresses' => function($q) use ($start, $end) {
+                    $q->whereBetween('time_completed', [$start, $end]);
+                }])
+                ->get();
         } else {
-            $customers = $actor->customers()->with(['kpi','progresses'=>function($q) use ($start,$end){
-                $q->whereBetween('time_completed', [$start, $end]);
-            }])->get();
+            $customers = $actor->customers()
+                ->with(['user', 'kpi', 'summary'])
+                ->with(['progresses' => function($q) use ($start, $end) {
+                    $q->whereBetween('time_completed', [$start, $end]);
+                }])
+                ->get();
         }
 
         if ($filterUserId) {
             $customers = $customers->filter(fn($c) => $c->user_id == $filterUserId)->values();
         }
 
-        // Build report rows
-        $rows = $customers->map(function($customer, $index) use ($start, $end, $actor) {
+        // Build report rows with new columns
+        $rows = $customers->map(function($customer, $index) use ($start, $end) {
             $currentKpiId = $customer->current_kpi_id ?? $customer->kpi_id;
 
             // Total assigned daily goals for the sales and KPI
@@ -135,15 +142,25 @@ class ReportController extends Controller
                     ];
                 });
 
+            // Get summary for this customer (current KPI)
+            $summary = $customer->summary;
+            $kesimpulan = $summary ? $summary->summary : '-';
+
             return [
                 'no' => $index + 1,
+                'sales_name' => $customer->user ? $customer->user->name : '-',
                 'customer_name' => $customer->pic,
                 'institution' => $customer->institution,
+                'product' => '-', // Reserved for future
+                'status' => $customer->status ?? '-',
+                'kesimpulan' => $kesimpulan,
+                'harga_penawaran' => '-', // Reserved for future
+                'harga_deal' => '-', // Reserved for future
+                'kpi_progress' => $kpiPercentOverall,
                 'position' => $customer->position,
                 'total_assigned' => $totalAssigned,
                 'approved_in_period' => $approvedInPeriod,
                 'kpi_percent_period' => $kpiPercentPeriod,
-                'kpi_percent_overall' => $kpiPercentOverall,
                 'first_submission' => $firstSubmission,
                 'last_submission' => $lastSubmission,
                 'daily_details' => $dailyDetails,
@@ -156,11 +173,36 @@ class ReportController extends Controller
             $filename = "progress_report_{$label}.csv";
             $callback = function() use ($rows) {
                 $out = fopen('php://output', 'w');
-                // header
-                fputcsv($out, ['No','Customer','Institution','Position','Assigned','ApprovedInPeriod','KPI% Period','KPI% Overall','FirstSubmitted','LastSubmitted','DailyDetails']);
+                // Header with new columns
+                fputcsv($out, [
+                    'No', 
+                    'Sales', 
+                    'Customer', 
+                    'Institution', 
+                    'Product', 
+                    'Status', 
+                    'Kesimpulan', 
+                    'Harga Penawaran', 
+                    'Harga Deal', 
+                    'KPI Progress %'
+                ]);
                 foreach ($rows as $r) {
-                    $details = collect($r['daily_details'])->map(fn($d) => $d['daily_goal'] . ' [' . $d['status'] . '] ' . ($d['last_submitted_at'] ?? '-'))->implode(' | ');
-                    fputcsv($out, [$r['no'],$r['customer_name'],$r['institution'],$r['position'],$r['total_assigned'],$r['approved_in_period'],$r['kpi_percent_period'],$r['kpi_percent_overall'],$r['first_submission'],$r['last_submission'],$details]);
+                    // Escape kesimpulan for CSV (handle commas, quotes, newlines)
+                    $kesimpulan = str_replace(["\r\n", "\n", "\r"], ' ', $r['kesimpulan']);
+                    $kesimpulan = str_replace('"', '""', $kesimpulan);
+                    
+                    fputcsv($out, [
+                        $r['no'],
+                        $r['sales_name'],
+                        $r['customer_name'],
+                        $r['institution'],
+                        $r['product'],
+                        $r['status'],
+                        '"' . $kesimpulan . '"',
+                        $r['harga_penawaran'],
+                        $r['harga_deal'],
+                        $r['kpi_progress'] . '%'
+                    ]);
                 }
                 fclose($out);
             };

@@ -50,6 +50,14 @@ class Customer extends Model
         return $this->hasMany(Progress::class);
     }
 
+    /**
+     * Get the summary for this customer (current KPI stage).
+     */
+    public function summary()
+    {
+        return $this->hasOne(CustomerSummary::class);
+    }
+
     protected $casts = [
         'status_changed_at' => 'datetime',
     ];

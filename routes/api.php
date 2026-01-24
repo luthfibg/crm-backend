@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DailyGoalController;
 use App\Http\Controllers\Api\KPIController;
 use App\Http\Controllers\Api\ProgressController;
+use App\Http\Controllers\Api\SummaryController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\AuthController;
@@ -42,6 +43,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/progress/submit', [ProgressController::class, 'store']);
     // Accept both POST and PUT for update (frontend may send PUT)
     Route::match(['post','put'], '/progress/update/{id}', [ProgressController::class, 'update']);
+    
+    // Summary routes
+    Route::resource('summaries', SummaryController::class)->only(['store', 'show']);
+    Route::post('/summaries/submit-and-advance', [SummaryController::class, 'submitAndAdvance']);
+    
     Route::post('customers/{customer}/skip-kpi', [CustomerController::class, 'skipKpi']);
     Route::get('users/{user}/stats', [UserController::class, 'getStats']);
     Route::get('sales/pipelines', [UserController::class, 'getSalesWithPipelines']);
