@@ -263,6 +263,8 @@ class ProgressController extends Controller
             }
 
             DB::commit();
+
+            $latestAttachment = ProgressAttachment::where('progress_id', $progress->id)->latest()->first();
             
             return response()->json([
                 'status' => true, 
@@ -271,6 +273,7 @@ class ProgressController extends Controller
                 'kpi_completed' => $isKpiCompleted,
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
+                'user_input' => $latestAttachment?->content,
             ], 200);
 
         } catch (\Exception $e) {
@@ -408,6 +411,9 @@ class ProgressController extends Controller
             }
 
             DB::commit();
+            $latestAttachment = ProgressAttachment::where('progress_id', $progress->id)
+            ->latest()
+            ->first();
             
             return response()->json([
                 'status' => true, 
@@ -416,6 +422,8 @@ class ProgressController extends Controller
                 'kpi_completed' => $isKpiCompleted,
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
+                'user_input' => $latestAttachment?->content 
+                ?? $latestAttachment?->original_name,
             ], 201);
 
         } catch (\Exception $e) {
@@ -554,7 +562,11 @@ class ProgressController extends Controller
             }
 
             DB::commit();
-            
+
+            $latestAttachment = ProgressAttachment::where('progress_id', $existingProgress->id)
+            ->latest()
+            ->first();
+
             return response()->json([
                 'status' => true,
                 'is_valid' => $isValid,
@@ -563,6 +575,8 @@ class ProgressController extends Controller
                 'kpi_completed' => $isKpiCompleted,
                 'progress_percent' => $currentProgress,
                 'scoring' => $scoringResult,
+                'user_input' => $latestAttachment?->content 
+                    ?? $latestAttachment?->original_name,
             ], 200);
 
         } catch (\Exception $e) {
@@ -602,6 +616,85 @@ class ProgressController extends Controller
             }
 
             return ['is_valid' => false, 'message' => 'Sistem: Format nomor tidak valid. Contoh: 08123456789'];
+        }
+
+        // 1.5 VALIDASI DATE
+        if ($inputType === 'date') {
+            if (!$evidence) {
+                return ['is_valid' => false, 'message' => 'Tanggal tidak boleh kosong'];
+            }
+
+            // Extract date patterns - flexible to allow additional text
+            // Common formats: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, DD-MM-YY, etc.
+            $datePattern = '/\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}|\d{4}[-\/]\d{1,2}[-\/]\d{1,2})\b/';
+            
+            if (preg_match($datePattern, $evidence, $matches)) {
+                $dateStr = $matches[0];
+                
+                // Try to parse the date
+                $parsedDate = null;
+                $formats = ['d-m-Y', 'd/m/Y', 'Y-m-d', 'd-m-y', 'd/m/y', 'Y/m/d'];
+                
+                foreach ($formats as $format) {
+                    $date = \DateTime::createFromFormat($format, $dateStr);
+                    if ($date && $date->format($format) === $dateStr) {
+                        $parsedDate = $date;
+                        break;
+                    }
+                }
+                
+                if ($parsedDate) {
+                    return ['is_valid' => true, 'message' => 'Sistem: Tanggal valid (' . $parsedDate->format('d-m-Y') . ')'];
+                }
+            }
+
+            return ['is_valid' => false, 'message' => 'Sistem: Format tanggal tidak valid. Contoh: 24-01-2026 atau 24/01/2026'];
+        }
+
+        // 1.6 VALIDASI NUMBER
+        if ($inputType === 'number') {
+            if (!$evidence) {
+                return ['is_valid' => false, 'message' => 'Angka tidak boleh kosong'];
+            }
+
+            // Extract numbers - flexible to allow additional text/context
+            // Matches integers or decimals (with dot or comma as separator)
+            if (preg_match('/\b\d+([.,]\d+)?\b/', $evidence, $matches)) {
+                $number = $matches[0];
+                // Normalize comma to dot for decimal
+                $normalizedNumber = str_replace(',', '.', $number);
+                
+                if (is_numeric($normalizedNumber)) {
+                    return ['is_valid' => true, 'message' => 'Sistem: Angka valid (' . $number . ')'];
+                }
+            }
+
+            return ['is_valid' => false, 'message' => 'Sistem: Tidak ditemukan angka yang valid'];
+        }
+
+        // 1.7 VALIDASI CURRENCY (RUPIAH)
+        if ($inputType === 'currency') {
+            if (!$evidence) {
+                return ['is_valid' => false, 'message' => 'Nominal tidak boleh kosong'];
+            }
+
+            // Extract Rupiah amount - very flexible to allow various formats
+            // Matches: Rp 10.000, Rp10000, 10000, 10.000, Rp 10.000.000, etc.
+            $currencyPattern = '/(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i';
+            
+            if (preg_match($currencyPattern, $evidence, $matches)) {
+                $amount = $matches[1];
+                // Remove dots and commas for validation
+                $cleanAmount = preg_replace('/[.,]/', '', $amount);
+                
+                if (is_numeric($cleanAmount) && $cleanAmount > 0) {
+                    // Format nicely for display
+                    $formattedAmount = 'Rp ' . number_format((int)$cleanAmount, 0, ',', '.');
+                    return ['is_valid' => true, 'message' => 'Sistem: Nominal valid (' . $formattedAmount . ')'];
+                }
+            }
+
+            return ['is_valid' => false, 'message' => 'Sistem: Format nominal tidak valid. Contoh: Rp 10.000 atau 10000'];
         }
 
         // 2. VALIDASI FILE
