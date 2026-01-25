@@ -58,6 +58,32 @@ class Customer extends Model
         return $this->hasOne(CustomerSummary::class);
     }
 
+    /**
+     * Get all products purchased by this customer.
+     */
+    public function products(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'customer_product')
+            ->withPivot(['negotiated_price', 'notes'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Get product names as comma-separated string.
+     */
+    public function getProductNamesAttribute(): string
+    {
+        return $this->products->pluck('name')->implode(', ');
+    }
+
+    /**
+     * Get product IDs as array.
+     */
+    public function getProductIdsAttribute(): array
+    {
+        return $this->products->pluck('id')->toArray();
+    }
+
     protected $casts = [
         'status_changed_at' => 'datetime',
     ];

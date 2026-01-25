@@ -10,6 +10,7 @@ use App\Models\CustomerSummary;
 use App\Models\User;
 use App\Models\DailyGoal;
 use App\Models\Progress;
+use App\Models\Product;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Log;
@@ -63,6 +64,7 @@ class ReportController extends Controller
         // Scope customers
         if ($actor->role === 'administrator') {
             $customers = Customer::with(['user', 'kpi', 'summary'])
+                ->with(['products'])
                 ->with(['progresses' => function($q) use ($start, $end) {
                     $q->whereBetween('time_completed', [$start, $end]);
                 }])
@@ -70,6 +72,7 @@ class ReportController extends Controller
         } else {
             $customers = $actor->customers()
                 ->with(['user', 'kpi', 'summary'])
+                ->with(['products'])
                 ->with(['progresses' => function($q) use ($start, $end) {
                     $q->whereBetween('time_completed', [$start, $end]);
                 }])
@@ -146,16 +149,30 @@ class ReportController extends Controller
             $summary = $customer->summary;
             $kesimpulan = $summary ? $summary->summary : '-';
 
+            // Get product names (comma-separated)
+            $products = $customer->products;
+            $productNames = $products->isNotEmpty() 
+                ? $products->pluck('name')->implode(', ')
+                : '-';
+            
+            // Calculate total deal value from negotiated prices or default prices
+            $totalDealValue = $products->sum(function($product) {
+                $pivot = $product->pivot;
+                return $pivot && $pivot->negotiated_price 
+                    ? $pivot->negotiated_price 
+                    : $product->default_price;
+            });
+
             return [
                 'no' => $index + 1,
                 'sales_name' => $customer->user ? $customer->user->name : '-',
                 'customer_name' => $customer->pic,
                 'institution' => $customer->institution,
-                'product' => '-', // Reserved for future
+                'product' => $productNames,
                 'status' => $customer->status ?? '-',
                 'kesimpulan' => $kesimpulan,
-                'harga_penawaran' => '-', // Reserved for future
-                'harga_deal' => '-', // Reserved for future
+                'harga_penawaran' => $products->isNotEmpty() ? 'Rp ' . number_format($products->sum('default_price'), 0, ',', '.') : '-',
+                'harga_deal' => $products->isNotEmpty() ? 'Rp ' . number_format($totalDealValue, 0, ',', '.') : '-',
                 'kpi_progress' => $kpiPercentOverall,
                 'position' => $customer->position,
                 'total_assigned' => $totalAssigned,
