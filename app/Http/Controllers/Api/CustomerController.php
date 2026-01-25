@@ -8,8 +8,9 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Models\KPI;
 use App\Models\DailyGoal;
+use App\Models\Product;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator; 
+use Illuminate\Support\Facades\Validator;
 
 class CustomerController extends Controller
 {
@@ -347,5 +348,119 @@ class CustomerController extends Controller
                 'per_page' => $sales->perPage()
             ]
         ]);
+    }
+
+    /**
+     * Get products for a specific customer.
+     */
+    public function getProducts(Request $request, $customerId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $customer = Customer::find($customerId);
+        if (!$customer) {
+            return response()->json(['message' => 'Customer not found.'], 404);
+        }
+
+        // Authorization: only owner or admin can view
+        if ($user->role !== 'administrator' && $customer->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $products = $customer->products()->get();
+
+        return response()->json([
+            'customer_id' => $customerId,
+            'products' => $products
+        ]);
+    }
+
+    /**
+     * Attach a product to a customer.
+     */
+    public function attachProduct(Request $request, $customerId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $validator = Validator::make(array_merge(['customer_id' => $customerId], $request->all()), [
+            'customer_id' => 'required|exists:customers,id',
+            'product_id' => 'required|exists:products,id',
+            'negotiated_price' => 'nullable|integer|min:0',
+            'notes' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $customer = Customer::findOrFail($customerId);
+
+        // Authorization: only owner or admin can attach
+        if ($user->role !== 'administrator' && $customer->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $validated = $validator->validated();
+
+        // Sync with additional pivot data
+        $pivotData = [
+            'negotiated_price' => $validated['negotiated_price'] ?? null,
+            'notes' => $validated['notes'] ?? null,
+        ];
+
+        $customer->products()->syncWithoutDetaching([
+            $validated['product_id'] => $pivotData
+        ]);
+
+        $product = Product::find($validated['product_id']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Product berhasil ditambahkan ke customer',
+            'product' => $product,
+            'pivot' => $pivotData
+        ]);
+    }
+
+    /**
+     * Detach a product from a customer.
+     */
+    public function detachProduct(Request $request, $customerId, $productId)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $customer = Customer::findOrFail($customerId);
+
+        // Authorization: only owner or admin can detach
+        if ($user->role !== 'administrator' && $customer->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $detached = $customer->products()->detach($productId);
+
+        if ($detached) {
+            return response()->json([
+                'status' => true,
+                'message' => 'Product berhasil dihapus dari customer'
+            ]);
+        }
+
+        return response()->json([
+            'status' => false,
+            'message' => 'Product tidak ditemukan pada customer ini'
+        ], 404);
     }
 }

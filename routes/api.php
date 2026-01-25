@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DailyGoalController;
 use App\Http\Controllers\Api\KPIController;
 use App\Http\Controllers\Api\ProgressController;
+use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SummaryController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ReportController;
@@ -56,4 +57,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Reports
     Route::get('/reports/progress', [ReportController::class, 'progressReport']);
     Route::delete('/progress/reset-prospect/{id}', [ProgressController::class, 'resetProspect']);
+
+    // Product routes
+    Route::resource('products', ProductController::class);
+    Route::get('/products/list', [ProductController::class, 'list']);
+    Route::patch('/products/{id}/toggle-active', [ProductController::class, 'toggleActive']);
+
+    // Customer-Product relationship routes
+    Route::get('customers/{customer}/products', [CustomerController::class, 'getProducts']);
+    Route::post('customers/{customer}/products', [CustomerController::class, 'attachProduct']);
+    Route::delete('customers/{customer}/products/{product}', [CustomerController::class, 'detachProduct']);
 });
