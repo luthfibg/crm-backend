@@ -5,11 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Customer extends Model
 {
-    protected $table = 'customers';
-
     protected $fillable = [
         'user_id',
         'kpi_id',
@@ -27,39 +26,66 @@ class Customer extends Model
         'max_points',
         'score_percentage',
         'created_at',
+        'product_ids',
     ];
 
-    public function user(): BelongsTo {
+    protected $casts = [
+        'status_changed_at' => 'datetime',
+        'earned_points' => 'decimal:2',
+        'max_points' => 'decimal:2',
+        'score_percentage' => 'decimal:2',
+    ];
+
+    /**
+     * Get the user that owns the customer.
+     */
+    public function user(): BelongsTo
+    {
         return $this->belongsTo(User::class);
     }
 
-    public function kpi(): BelongsTo {
+    /**
+     * Get the KPI that owns the customer.
+     */
+    public function kpi(): BelongsTo
+    {
         return $this->belongsTo(KPI::class);
     }
 
-    public function currentKpi(): BelongsTo {
+    /**
+     * Get the current KPI for the customer.
+     */
+    public function currentKpi(): BelongsTo
+    {
         return $this->belongsTo(KPI::class, 'current_kpi_id');
     }
 
-    public function kpiScores()
+    /**
+     * Get the progresses for the customer.
+     */
+    public function progresses(): HasMany
     {
-        return $this->hasMany(CustomerKpiScore::class);
-    }
-
-    public function progresses(): HasMany {
         return $this->hasMany(Progress::class);
     }
 
     /**
-     * Get the summary for this customer (current KPI stage).
+     * Get the customer summaries for the customer.
      */
-    public function summary()
+    public function summaries(): HasMany
     {
-        return $this->hasOne(CustomerSummary::class);
+        return $this->hasMany(CustomerSummary::class);
     }
 
     /**
-     * Get all products purchased by this customer.
+     * Get the customer KPI scores for the customer.
+     */
+    public function kpiScores(): HasMany
+    {
+        return $this->hasMany(CustomerKpiScore::class);
+    }
+
+    /**
+     * Get the products associated with the customer.
      */
     public function products(): BelongsToMany
     {
@@ -67,24 +93,4 @@ class Customer extends Model
             ->withPivot(['negotiated_price', 'notes'])
             ->withTimestamps();
     }
-
-    /**
-     * Get product names as comma-separated string.
-     */
-    public function getProductNamesAttribute(): string
-    {
-        return $this->products->pluck('name')->implode(', ');
-    }
-
-    /**
-     * Get product IDs as array.
-     */
-    public function getProductIdsAttribute(): array
-    {
-        return $this->products->pluck('id')->toArray();
-    }
-
-    protected $casts = [
-        'status_changed_at' => 'datetime',
-    ];
 }
