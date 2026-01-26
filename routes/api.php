@@ -68,4 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('customers/{customer}/products', [CustomerController::class, 'getProducts']);
     Route::post('customers/{customer}/products', [CustomerController::class, 'attachProduct']);
     Route::delete('customers/{customer}/products/{product}', [CustomerController::class, 'detachProduct']);
+
+    // File access routes
+    Route::get('/progress/attachment/{progressId}', [ProgressController::class, 'getAttachment']);
 });
