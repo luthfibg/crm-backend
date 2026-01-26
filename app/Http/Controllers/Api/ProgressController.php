@@ -361,11 +361,11 @@ class ProgressController extends Controller
     private function validateEvidence($dailyGoal, $request)
     {
         $inputType = $dailyGoal->input_type;
-        $evidence = $request->evidence;
+        $evidence = data_get($request->all(), 'evidence');
         $file = $request->file('evidence');
 
         if ($inputType === 'phone') {
-            if (!$evidence) return ['is_valid' => false, 'message' => 'Nomor telepon tidak boleh kosong'];
+            if ($evidence === null || $evidence === '') return ['is_valid' => false, 'message' => 'Nomor telepon tidak boleh kosong'];
             $cleanPhone = preg_replace('/[^0-9+]/', '', $evidence);
             if (preg_match('/^(\+62|62|0)8[1-9][0-9]{6,9}$/', $cleanPhone)) {
                 return ['is_valid' => true, 'message' => 'Sistem: Nomor telepon valid'];
@@ -374,7 +374,7 @@ class ProgressController extends Controller
         }
 
         if ($inputType === 'date') {
-            if (!$evidence) return ['is_valid' => false, 'message' => 'Tanggal tidak boleh kosong'];
+            if ($evidence === null || $evidence === '') return ['is_valid' => false, 'message' => 'Tanggal tidak boleh kosong'];
 
             $evidenceLower = strtolower($evidence);
 
@@ -447,7 +447,7 @@ class ProgressController extends Controller
         }
 
         if ($inputType === 'number') {
-            if (!$evidence) return ['is_valid' => false, 'message' => 'Angka tidak boleh kosong'];
+            if ($evidence === null || $evidence === '') return ['is_valid' => false, 'message' => 'Angka tidak boleh kosong'];
 
             // More flexible number matching
             $numberPatterns = [
@@ -473,7 +473,7 @@ class ProgressController extends Controller
         }
 
         if ($inputType === 'currency') {
-            if (!$evidence) return ['is_valid' => false, 'message' => 'Nominal tidak boleh kosong'];
+            if ($evidence === null || $evidence === '') return ['is_valid' => false, 'message' => 'Nominal tidak boleh kosong'];
 
             $evidenceLower = strtolower($evidence);
 
@@ -569,7 +569,7 @@ class ProgressController extends Controller
         }
 
         if ($inputType === 'text') {
-            if (!$evidence || strlen(trim($evidence)) < 5) {
+            if ($evidence === null || $evidence === '' || strlen(trim($evidence)) < 5) {
                 return ['is_valid' => false, 'message' => 'Sistem: Jawaban terlalu pendek (min 5 karakter)'];
             }
 
