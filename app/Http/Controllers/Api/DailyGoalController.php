@@ -108,24 +108,28 @@ class DailyGoalController extends Controller
                 // Syarat 1: KPI ID harus cocok
                 if ($goal->kpi_id != $kpiId) return false;
 
-                // Syarat 2: Jika Pemerintahan, cek sub_category mapping
+                // Syarat 2: Jika Pemerintahan, filter berdasarkan daily_goal_type_id = 2 terlebih dahulu
                 if (strtolower($customer->category ?? '') === 'pemerintah') {
+                    // Pastikan goal memiliki daily_goal_type_id = 2 (Pemerintah)
+                    if ($goal->daily_goal_type_id != 2) return false;
+
+                    // Kemudian cek sub_category mapping
                     // Jika goal tidak punya sub_category, tampilkan (generik/fallback)
                     if (empty($goal->sub_category)) return true;
                     // Jika customer tidak punya sub_category, tampilkan goals tanpa sub_category
-                    if (empty($customer->sub_category)) return empty($goal->sub_category);
-                    // Bandingkan sub_category yang sudah dinormalisasi
-                    return strtoupper($goal->sub_category) === strtoupper($customer->sub_category);
+                    if (empty($targetGoalGroup)) return empty($goal->sub_category);
+                    // Bandingkan sub_category dengan target group yang sudah di-mapping
+                    return strtoupper($goal->sub_category) === strtoupper($targetGoalGroup);
                 }
 
                 // Syarat 3: Untuk kategori lain, cocokkan daily_goal_type_id berdasarkan category
                 $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
-                
+
                 // Jika expectedTypeId null atau goal tidak punya type_id, tampilkan semua
                 if ($expectedTypeId === null || $goal->daily_goal_type_id === null) {
                     return true;
                 }
-                
+
                 return $goal->daily_goal_type_id == $expectedTypeId;
             });
         };
@@ -174,7 +178,7 @@ class DailyGoalController extends Controller
             if ($progress) {
                 $attachment = ProgressAttachment::where('progress_id', $progress->id)->first();
                 if ($attachment) {
-                    if (in_array($attachment->type, ['text', 'phone'])) {
+                    if (in_array($attachment->type, ['text', 'phone', 'date', 'number', 'currency'])) {
                         $userInput = $attachment->content;
                     } elseif (in_array($attachment->type, ['file', 'image', 'video'])) {
                         $userInput = $attachment->original_name ?? basename($attachment->file_path ?? '');
