@@ -164,7 +164,7 @@ class SummaryController extends Controller
 
     /**
      * Get summary for a customer.
-     * 
+     *
      * @param Request $request
      * @param int $customerId
      * @return \Illuminate\Http\JsonResponse
@@ -172,7 +172,7 @@ class SummaryController extends Controller
     public function show(Request $request, $customerId)
     {
         $user = $request->user();
-        
+
         $customer = Customer::find($customerId);
         if (!$customer) {
             return response()->json([
@@ -193,6 +193,65 @@ class SummaryController extends Controller
         return response()->json([
             'status' => true,
             'data' => $summary
+        ]);
+    }
+
+    /**
+     * Get summary for a customer (alternative route).
+     *
+     * @param Request $request
+     * @param int $customerId
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function showByCustomer(Request $request, $customerId)
+    {
+        $user = $request->user();
+
+        $customer = Customer::find($customerId);
+        if (!$customer) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Customer tidak ditemukan'
+            ], 404);
+        }
+
+        // Authorization check
+        if ($user->role !== 'administrator' && $customer->user_id !== $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $summary = CustomerSummary::where('customer_id', $customerId)
+            ->where('kpi_id', $customer->current_kpi_id ?? $customer->kpi_id)
+            ->first();
+
+        return response()->json([
+            'status' => true,
+            'summary' => $summary ? $summary->summary : null
+        ]);
+    }
+
+    /**
+     * Update progress values to full after summary submission.
+     */
+    private function updateProgressValuesAfterSummary($customerId, $kpiId, $userId)
+    {
+        $totalDaily = \App\Models\DailyGoal::where('user_id', $userId)
+            ->where('kpi_id', $kpiId)
+            ->where('description', 'NOT LIKE', 'Auto-generated%')
+            ->count();
+
+        $fullProgressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
+
+        \App\Models\Progress::where('customer_id', $customerId)
+            ->where('kpi_id', $kpiId)
+            ->where('user_id', $userId)
+            ->where('status', 'approved')
+            ->update(['progress_value' => $fullProgressValue]);
+
+        Log::info("Progress values updated after summary submission", [
+            'customer_id' => $customerId,
+            'kpi_id' => $kpiId,
+            'progress_value' => $fullProgressValue
         ]);
     }
 

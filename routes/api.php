@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Summary routes
     Route::resource('summaries', SummaryController::class)->only(['store', 'show']);
+    Route::get('/summaries/customer/{customerId}', [SummaryController::class, 'showByCustomer']);
     Route::post('/summaries/submit-and-advance', [SummaryController::class, 'submitAndAdvance']);
     
     Route::post('customers/{customer}/skip-kpi', [CustomerController::class, 'skipKpi']);

@@ -15,12 +15,12 @@ class Product extends Model
         'default_price',
         'description',
         'is_active',
-        'created_by',
+        'created_by'
     ];
 
     protected $casts = [
-        'default_price' => 'integer',
         'is_active' => 'boolean',
+        'default_price' => 'integer'
     ];
 
     /**
@@ -42,7 +42,7 @@ class Product extends Model
     }
 
     /**
-     * Get only active products.
+     * Scope to get only active products.
      */
     public function scopeActive($query)
     {
@@ -50,19 +50,10 @@ class Product extends Model
     }
 
     /**
-     * Get products formatted for dropdown/list.
+     * Get formatted default price.
      */
-    public static function getForDropdown()
-    {
-        return self::active()->orderBy('name')->get(['id', 'name', 'default_price']);
-    }
-
-    /**
-     * Format price to Indonesian Rupiah.
-     */
-    public function getFormattedPriceAttribute(): string
+    public function getFormattedDefaultPriceAttribute(): string
     {
         return 'Rp ' . number_format($this->default_price, 0, ',', '.');
     }
 }
-

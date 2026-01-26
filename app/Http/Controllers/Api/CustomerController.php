@@ -60,14 +60,16 @@ class CustomerController extends Controller
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|integer',
             'kpi_id' => 'required|integer',
-            'category' => 'required|string', // Tambahkan validasi kategori
+            'category' => 'required|string',
             'pic' => 'required|string|max:255',
             'institution' => 'required|string',
             'position' => 'nullable|string',
             'email' => 'nullable|email',
             'phone_number' => 'required',
             'notes' => 'nullable',
-            'created_at' => 'nullable|date'
+            'created_at' => 'nullable|date',
+            'product_ids' => 'nullable|array',
+            'product_ids.*' => 'integer|exists:products,id',
         ]);
 
         if ($validator->fails()) {
@@ -85,12 +87,21 @@ class CustomerController extends Controller
         $data['status'] = 'New';
         $data['status_changed_at'] = now();
 
+        // Extract product_ids if present
+        $productIds = $data['product_ids'] ?? [];
+        unset($data['product_ids']);
+
         // Pastikan model Customer sudah menambahkan 'category' di $fillable
         $customer = Customer::create($data);
 
         $user = User::find($data['user_id']);
         if ($user) {
             $user->kpis()->syncWithoutDetaching([1]);
+        }
+
+        // Attach products if any
+        if (!empty($productIds)) {
+            $customer->products()->attach($productIds);
         }
 
         return response()->json(['customer' => $customer], 201);
@@ -124,13 +135,15 @@ class CustomerController extends Controller
      */
     public function update(Request $request, string $id)
     {
-         $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'pic' => 'required|string|max:255',
             'institution' => 'required|string',
             'position' => 'nullable|string',
             'email' => 'nullable|email',
             'phone_number' => 'required',
-            'notes' => 'nullable'
+            'notes' => 'nullable',
+            'product_ids' => 'nullable|array',
+            'product_ids.*' => 'integer|exists:products,id',
         ]);
 
         if ($validator->fails()) {
@@ -142,9 +155,20 @@ class CustomerController extends Controller
         }
 
         $data = $validator->validate();
+        
+        // Extract product_ids if present
+        $productIds = $data['product_ids'] ?? [];
+        unset($data['product_ids']);
+
         $customer = Customer::findOrFail($id);
         $customer->update($data);
-        return response()->json($customer,201);
+
+        // Sync products if provided
+        if ($productIds !== null) {
+            $customer->products()->sync($productIds);
+        }
+
+        return response()->json($customer, 201);
     }
 
     /**

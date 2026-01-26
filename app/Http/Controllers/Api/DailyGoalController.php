@@ -21,6 +21,7 @@ class DailyGoalController extends Controller
      * - Hanya count approved untuk progress
      * - Tambah flag is_rejected untuk tasks yang ditolak
      * - Pastikan UI bisa show rejected tasks untuk di-resubmit
+     * - Handle null sub_category untuk customer baru
      */
     public function index(Request $request)
 {
@@ -54,7 +55,7 @@ class DailyGoalController extends Controller
     // Mapping category ke daily_goal_type_id
     $categoryToTypeMapping = [
         'Pendidikan' => 1,
-        'Pemerintahan' => 2,
+        'Pemerintah' => 2,
         'Web Inquiry Corporate' => 3,
         'Web Inquiry CNI' => 4,
         'Web Inquiry C&I' => 4, // Handle typo
@@ -71,6 +72,17 @@ class DailyGoalController extends Controller
             return $items->groupBy('kpi_id')->map(fn($group) => $group->count());
         });
 
+    // 3.1. Ambil data PROGRESS VALUE yang sudah APPROVED
+    $progressValueByCustomer = Progress::where('user_id', $user->id)
+        ->where('status', 'approved')
+        ->whereNotNull('time_completed')
+        ->whereIn('customer_id', $customers->pluck('id'))
+        ->get()
+        ->groupBy('customer_id')
+        ->map(function($items) {
+            return $items->groupBy('kpi_id')->map(fn($group) => $group->sum('progress_value'));
+        });
+
     // 4. Ambil last follow-up time per customer (waktu terakhir input daily goal)
     $lastFollowUpByCustomer = Progress::where('user_id', $user->id)
         ->whereNotNull('time_completed')
@@ -82,7 +94,7 @@ class DailyGoalController extends Controller
             return $items->first()->time_completed;
         });
 
-    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $progressValueByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
         $currentKpi = $customer->kpi;
         $currentKpiId = $customer->current_kpi_id;
         
@@ -97,17 +109,19 @@ class DailyGoalController extends Controller
                 if ($goal->kpi_id != $kpiId) return false;
 
                 // Syarat 2: Jika Pemerintahan, cek sub_category mapping
-                if (strtolower($customer->category ?? '') === 'pemerintahan') {
-                    // Jika goal tidak punya sub_category, skip filter sub_category
+                if (strtolower($customer->category ?? '') === 'pemerintah') {
+                    // Jika goal tidak punya sub_category, tampilkan (generik/fallback)
                     if (empty($goal->sub_category)) return true;
-                    return strtoupper($goal->sub_category) === strtoupper($targetGoalGroup);
+                    // Jika customer tidak punya sub_category, tampilkan goals tanpa sub_category
+                    if (empty($customer->sub_category)) return empty($goal->sub_category);
+                    // Bandingkan sub_category yang sudah dinormalisasi
+                    return strtoupper($goal->sub_category) === strtoupper($customer->sub_category);
                 }
 
                 // Syarat 3: Untuk kategori lain, cocokkan daily_goal_type_id berdasarkan category
                 $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
                 
-                // Jika expectedTypeId null (kategori tidak dikenal) atau goal tidak punya type_id,
-                // fallback: tampilkan semua goals untuk KPI tersebut
+                // Jika expectedTypeId null atau goal tidak punya type_id, tampilkan semua
                 if ($expectedTypeId === null || $goal->daily_goal_type_id === null) {
                     return true;
                 }
@@ -122,17 +136,17 @@ class DailyGoalController extends Controller
             ->orderBy('sequence', 'asc')
             ->get();
 
-        $kpiProgress = $allKpis->map(function($kpi) use ($customer, $approvedByCustomer, $currentKpiId, $getGoalsForCustomer) {
+        $kpiProgress = $allKpis->map(function($kpi) use ($customer, $progressValueByCustomer, $currentKpiId, $getGoalsForCustomer) {
             $filteredGoals = $getGoalsForCustomer($kpi->id);
             $assigned = $filteredGoals->count();
-            $approvedCount = $approvedByCustomer[$customer->id][$kpi->id] ?? 0;
-            
+            $totalProgressValue = $progressValueByCustomer[$customer->id][$kpi->id] ?? 0;
+
             // Logic: Jika assigned 0 tapi approved ada (data lama), tetap anggap selesai
             // Jika assigned > 0, hitung persentase normal
             if ($assigned > 0) {
-                $percent = min(100, round(($approvedCount / $assigned) * 100, 2));
+                $percent = min(100, round(($totalProgressValue / 100) * 100, 2));
             } else {
-                $percent = $approvedCount > 0 ? 100 : 0;
+                $percent = $totalProgressValue > 0 ? 100 : 0;
             }
 
             return [
@@ -140,7 +154,7 @@ class DailyGoalController extends Controller
                 'kpi_description' => $kpi->description,
                 'kpi_weight'      => $kpi->weight_point,
                 'assigned_count'  => (int) $assigned,
-                'approved_count'  => (int) $approvedCount,
+                'approved_count'  => (int) $totalProgressValue,
                 'percent'         => (float) $percent,
                 'is_current'      => $kpi->id == $currentKpiId,
                 'is_completed'    => $percent >= 100,
@@ -172,7 +186,7 @@ class DailyGoalController extends Controller
                 'id'                => $goal->id,
                 'description'       => $goal->description,
                 'input_type'        => $goal->input_type,
-                'is_completed'      => $progress && $progress->status === 'approved',
+                'is_completed'      => $progress && $progress->status === 'approved' && $progress->progress_value > 0,
                 'is_rejected'       => $progress && $progress->status === 'rejected',
                 'progress_id'       => $progress ? $progress->id : null,
                 'progress_status'   => $progress ? $progress->status : null,
@@ -182,6 +196,15 @@ class DailyGoalController extends Controller
 
         // Statistik Current KPI
         $statsCurrent = $kpiProgress->firstWhere('kpi_id', $currentKpiId) ?? ['percent' => 0, 'approved_count' => 0, 'assigned_count' => 0];
+
+        // Check if summary is required (all tasks completed but no summary exists)
+        $summaryRequired = false;
+        if ($statsCurrent['percent'] >= 100) {
+            $summaryExists = \App\Models\CustomerSummary::where('customer_id', $customer->id)
+                ->where('kpi_id', $currentKpiId)
+                ->exists();
+            $summaryRequired = !$summaryExists;
+        }
 
         return [
             'customer' => [
@@ -201,6 +224,7 @@ class DailyGoalController extends Controller
                 'approved_count' => (int) $statsCurrent['approved_count'],
                 'assigned_count' => (int) $statsCurrent['assigned_count'],
             ],
+            'summary_required' => $summaryRequired,
             'last_followup_at' => $lastFollowUpByCustomer[$customer->id] ?? null,
         ];
     });
@@ -294,7 +318,7 @@ class DailyGoalController extends Controller
         }
 
         if (! in_array($actor->role, ['administrator', 'sales_manager']) && $actor->id != (int)$userId) {
-            return response()->json(['message' => 'Forbidden.'], 403);
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         $dailyGoals = DailyGoal::where('user_id', $userId)
