@@ -72,17 +72,6 @@ class DailyGoalController extends Controller
             return $items->groupBy('kpi_id')->map(fn($group) => $group->count());
         });
 
-    // 3.1. Ambil data PROGRESS VALUE yang sudah APPROVED
-    $progressValueByCustomer = Progress::where('user_id', $user->id)
-        ->where('status', 'approved')
-        ->whereNotNull('time_completed')
-        ->whereIn('customer_id', $customers->pluck('id'))
-        ->get()
-        ->groupBy('customer_id')
-        ->map(function($items) {
-            return $items->groupBy('kpi_id')->map(fn($group) => $group->sum('progress_value'));
-        });
-
     // 4. Ambil last follow-up time per customer (waktu terakhir input daily goal)
     $lastFollowUpByCustomer = Progress::where('user_id', $user->id)
         ->whereNotNull('time_completed')
@@ -94,7 +83,7 @@ class DailyGoalController extends Controller
             return $items->first()->time_completed;
         });
 
-    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $progressValueByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
         $currentKpi = $customer->kpi;
         $currentKpiId = $customer->current_kpi_id;
         
@@ -140,25 +129,20 @@ class DailyGoalController extends Controller
             ->orderBy('sequence', 'asc')
             ->get();
 
-        $kpiProgress = $allKpis->map(function($kpi) use ($customer, $progressValueByCustomer, $currentKpiId, $getGoalsForCustomer) {
+        $kpiProgress = $allKpis->map(function($kpi) use ($customer, $approvedByCustomer, $currentKpiId, $getGoalsForCustomer) {
             $filteredGoals = $getGoalsForCustomer($kpi->id);
             $assigned = $filteredGoals->count();
-            $totalProgressValue = $progressValueByCustomer[$customer->id][$kpi->id] ?? 0;
+            $approved = $approvedByCustomer[$customer->id][$kpi->id] ?? 0;
 
-            // Logic: Jika assigned 0 tapi approved ada (data lama), tetap anggap selesai
-            // Jika assigned > 0, hitung persentase normal
-            if ($assigned > 0) {
-                $percent = min(100, round(($totalProgressValue / 100) * 100, 2));
-            } else {
-                $percent = $totalProgressValue > 0 ? 100 : 0;
-            }
+            // Hitung persentase berdasarkan jumlah tasks yang diselesaikan
+            $percent = $assigned > 0 ? min(100, round(($approved / $assigned) * 100, 2)) : 0;
 
             return [
                 'kpi_id'          => $kpi->id,
                 'kpi_description' => $kpi->description,
                 'kpi_weight'      => $kpi->weight_point,
                 'assigned_count'  => (int) $assigned,
-                'approved_count'  => (int) $totalProgressValue,
+                'completed_count' => (int) $approved,
                 'percent'         => (float) $percent,
                 'is_current'      => $kpi->id == $currentKpiId,
                 'is_completed'    => $percent >= 100,
@@ -225,7 +209,7 @@ class DailyGoalController extends Controller
             'daily_goals' => $dailyGoals,
             'stats' => [
                 'percent'        => (float) $statsCurrent['percent'],
-                'approved_count' => (int) $statsCurrent['approved_count'],
+                'approved_count' => (int) $statsCurrent['completed_count'],
                 'assigned_count' => (int) $statsCurrent['assigned_count'],
             ],
             'summary_required' => $summaryRequired,
