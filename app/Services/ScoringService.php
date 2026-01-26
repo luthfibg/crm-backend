@@ -18,11 +18,8 @@ class ScoringService
         $customer = Customer::findOrFail($customerId);
         $kpi = KPI::findOrFail($kpiId);
 
-        // Hitung total tasks dan yang completed (approved)
-        $totalTasks = DailyGoal::where('user_id', $userId)
-            ->where('kpi_id', $kpiId)
-            ->where('description', 'NOT LIKE', 'Auto-generated%')
-            ->count();
+        // Hitung total tasks yang assigned ke customer ini
+        $totalTasks = $this->getAssignedTasksCount($customerId, $kpiId, $userId);
 
         $completedTasks = Progress::where('customer_id', $customerId)
             ->where('kpi_id', $kpiId)
@@ -64,6 +61,57 @@ class ScoringService
             'earned_points' => round($earnedPoints, 2),
             'kpi_weight' => $kpi->weight_point,
         ];
+    }
+
+    private function getAssignedTasksCount($customerId, $kpiId, $userId)
+    {
+        $customer = Customer::findOrFail($customerId);
+
+        // Mapping Sub-Kategori
+        $groupMapping = [
+            'UKPBJ' => 'KEDINASAN',
+            'RUMAH SAKIT' => 'KEDINASAN',
+            'KANTOR KEDINASAN' => 'KEDINASAN',
+            'KANTOR BALAI' => 'KEDINASAN',
+            'KELURAHAN' => 'KECAMATAN',
+            'KECAMATAN' => 'KECAMATAN',
+            'PUSKESMAS' => 'PUSKESMAS'
+        ];
+
+        $rawSub = strtoupper($customer->sub_category ?? '');
+        $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
+
+        // Mapping category ke daily_goal_type_id
+        $categoryToTypeMapping = [
+            'Pendidikan' => 1,
+            'Pemerintah' => 2,
+            'Web Inquiry Corporate' => 3,
+            'Web Inquiry CNI' => 4,
+            'Web Inquiry C&I' => 4,
+        ];
+
+        $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+
+        $query = DailyGoal::where('user_id', $userId)
+            ->where('kpi_id', $kpiId)
+            ->where('description', 'NOT LIKE', 'Auto-generated%');
+
+        if (strtolower($customer->category ?? '') === 'pemerintah') {
+            $query->where('daily_goal_type_id', 2);
+
+            if (!empty($targetGoalGroup)) {
+                $query->where(function($q) use ($targetGoalGroup) {
+                    $q->whereNull('sub_category')
+                      ->orWhere('sub_category', $targetGoalGroup);
+                });
+            }
+        } else {
+            if ($expectedTypeId !== null) {
+                $query->where('daily_goal_type_id', $expectedTypeId);
+            }
+        }
+
+        return $query->count();
     }
 
     /**

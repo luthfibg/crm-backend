@@ -266,7 +266,7 @@ class ProgressController extends Controller
 
             DB::commit();
             $latestAttachment = ProgressAttachment::where('progress_id', $progress->id)->latest()->first();
-            
+
             return response()->json([
                 'status' => true, 'is_valid' => $isValid, 'message' => $reviewNote,
                 'kpi_completed' => $isKpiCompleted, 'summary_required' => $isKpiCompleted,
