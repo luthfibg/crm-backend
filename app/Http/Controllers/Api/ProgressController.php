@@ -726,10 +726,10 @@ class ProgressController extends Controller
 
         DB::beginTransaction();
         try {
-            // Set progress_value to 0 and status to 'reverted'
+            // Set progress_value to 0 and status to 'rejected' (since 'reverted' is not in enum)
             $progress->update([
                 'progress_value' => 0,
-                'status' => 'reverted',
+                'status' => 'rejected',
                 'reviewer_note' => 'Reverted by user'
             ]);
 
