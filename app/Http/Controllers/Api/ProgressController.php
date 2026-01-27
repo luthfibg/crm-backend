@@ -709,6 +709,78 @@ class ProgressController extends Controller
         return ['is_valid' => false, 'message' => 'Sistem: Jawaban kurang detail tentang penyelesaian misi'];
     }
 
+    public function revert(Request $request, $progressId)
+    {
+        $actor = $request->user();
+
+        $progress = Progress::findOrFail($progressId);
+
+        // Validate that the progress belongs to the user and is approved
+        if ($progress->user_id !== $actor->id) {
+            return response()->json(['status' => false, 'message' => 'Unauthorized to revert this progress.'], 403);
+        }
+
+        if ($progress->status !== 'approved') {
+            return response()->json(['status' => false, 'message' => 'Only approved progress can be reverted.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Set progress_value to 0 and status to 'reverted'
+            $progress->update([
+                'progress_value' => 0,
+                'status' => 'reverted',
+                'reviewer_note' => 'Reverted by user'
+            ]);
+
+            // Recalculate customer progress percentage
+            $customer = Customer::findOrFail($progress->customer_id);
+            $currentKpiId = $customer->current_kpi_id ?? $progress->kpi_id;
+
+            $categoryToTypeMapping = ['Pendidikan' => 1, 'Pemerintah' => 2, 'Web Inquiry Corporate' => 3, 'Web Inquiry CNI' => 4, 'Web Inquiry C&I' => 4];
+            $expectedTypeId = $categoryToTypeMapping[$customer->category] ?? null;
+
+            $totalAssignedQuery = DailyGoal::where('user_id', $actor->id)->where('kpi_id', $currentKpiId)->where('description', 'NOT LIKE', 'Auto-generated%');
+
+            if (strtolower($customer->category) === 'pemerintah') {
+                $groupMapping = ['UKPBJ' => 'KEDINASAN', 'RUMAH SAKIT' => 'KEDINASAN', 'KANTOR KEDINASAN' => 'KEDINASAN', 'KANTOR BALAI' => 'KEDINASAN', 'KELURAHAN' => 'KECAMATAN', 'KECAMATAN' => 'KECAMATAN', 'PUSKESMAS' => 'PUSKESMAS'];
+                $rawSub = strtoupper($customer->sub_category ?? '');
+                $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
+                $totalAssignedQuery->where('sub_category', $targetGoalGroup);
+            } else {
+                $totalAssignedQuery->where('daily_goal_type_id', $expectedTypeId);
+            }
+
+            $totalAssigned = $totalAssignedQuery->count();
+
+            $totalProgressValue = Progress::where('customer_id', $customer->id)
+                ->where('kpi_id', $currentKpiId)
+                ->where('user_id', $actor->id)
+                ->where('status', 'approved')
+                ->whereNotNull('time_completed')
+                ->sum('progress_value');
+
+            $currentProgress = $totalAssigned > 0 ? round(($totalProgressValue / 100) * 100, 2) : 0;
+
+            // Recalculate scores using ScoringService
+            $scoringResult = $this->scoringService->calculateKpiScore($customer->id, $progress->kpi_id, $actor->id);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Progress reverted successfully.',
+                'progress_percent' => $currentProgress,
+                'scoring' => $scoringResult
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error("Progress revert error: " . $e->getMessage(), ['progress_id' => $progressId]);
+            return response()->json(['status' => false, 'message' => 'Failed to revert progress.'], 500);
+        }
+    }
+
     public function getCustomerProgress(Request $request, $customerId)
     {
         $actor = $request->user();
