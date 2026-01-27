@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/progress/submit', [ProgressController::class, 'store']);
     // Accept both POST and PUT for update (frontend may send PUT)
     Route::match(['post','put'], '/progress/update/{id}', [ProgressController::class, 'update']);
+    Route::post('/progress/revert/{progressId}', [ProgressController::class, 'revert']);
     
     // Summary routes
     Route::resource('summaries', SummaryController::class)->only(['store', 'show']);
