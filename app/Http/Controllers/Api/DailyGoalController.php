@@ -201,6 +201,7 @@ class DailyGoalController extends Controller
                 'institution'  => $customer->institution,
                 'category'     => $customer->category,
                 'sub_category' => $customer->sub_category,
+                'display_name' => $customer->display_name,
                 'status'       => $customer->status,
                 'status_changed_at' => $customer->status_changed_at,
             ],
@@ -238,7 +239,12 @@ class DailyGoalController extends Controller
             // Tambahkan ID Tipe/Kategori Utama
             'daily_goal_type_id' => 'required|integer|exists:daily_goal_types,id',
             // Sub-Kategori wajib diisi HANYA JIKA tipe yang dipilih adalah Pemerintahan
-            'sub_category' => 'nullable|string|in:Kedinasan,Kecamatan,Puskesmas', 
+            'sub_category' => 'nullable|string|in:Kedinasan,Kecamatan,Puskesmas',
+            // Display names for storing alias/sub-category display names
+            'display_name1' => 'nullable|string',
+            'display_name2' => 'nullable|string',
+            'display_name3' => 'nullable|string',
+            'display_name4' => 'nullable|string',
             'daily_goals' => 'required|array|min:1',
             'daily_goals.*.description' => 'required|string|max:255',
             'daily_goals.*.is_completed' => 'sometimes|boolean',
@@ -270,6 +276,10 @@ class DailyGoalController extends Controller
                     'kpi_id'  => $kpi->id,
                     'daily_goal_type_id' => $data['daily_goal_type_id'], // Simpan kategori utama
                     'sub_category'       => $data['sub_category'] ?? null, // Simpan sub-kategori (jika ada)
+                    'display_name1'      => $data['display_name1'] ?? null,
+                    'display_name2'      => $data['display_name2'] ?? null,
+                    'display_name3'      => $data['display_name3'] ?? null,
+                    'display_name4'      => $data['display_name4'] ?? null,
                     'description'        => $dg['description'],
                     'is_completed'       => $dg['is_completed'] ?? false,
                     'input_type'         => $dg['input_type'] ?? 'none',

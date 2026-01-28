@@ -62,6 +62,7 @@ class CustomerController extends Controller
             'kpi_id' => 'required|integer',
             'category' => 'required|string',
             'sub_category' => 'nullable|string',
+            'display_name' => 'nullable|string',
             'pic' => 'required|string|max:255',
             'institution' => 'required|string',
             'position' => 'nullable|string',
