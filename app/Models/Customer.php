@@ -22,6 +22,7 @@ class Customer extends Model
         'status',
         'category',
         'sub_category',
+        'display_name',
         'status_changed_at',
         'earned_points',
         'max_points',
