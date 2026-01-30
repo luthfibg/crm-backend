@@ -391,5 +391,78 @@ class ProgressController extends Controller
             return response()->json(['status' => false, 'message' => 'Gagal revert'], 500);
         }
     }
+
+    /**
+     * Get attachment file for a progress entry.
+     */
+    public function getAttachment(Request $request, $progressId)
+    {
+        // For file downloads from window.open, handle token from query param
+        $token = $request->get('token');
+        if ($token) {
+            $tokenModel = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+            if ($tokenModel) {
+                $user = \App\Models\User::find($tokenModel->tokenable_id);
+                if ($user) {
+                    $request->setUserResolver(function () use ($user) {
+                        return $user;
+                    });
+                }
+            }
+        }
+
+        $attachment = ProgressAttachment::where('progress_id', $progressId)->first();
+
+        if (!$attachment) {
+            return response()->json(['message' => 'Attachment not found'], 404);
+        }
+
+        // If it's a content-based attachment (text, etc.)
+        if ($attachment->content) {
+            return response()->json([
+                'type' => $attachment->type,
+                'content' => $attachment->content,
+                'original_name' => $attachment->original_name
+            ]);
+        }
+
+        // If it's a file-based attachment
+        if ($attachment->file_path) {
+            $fullPath = storage_path('app/public/' . $attachment->file_path);
+            
+            if (!file_exists($fullPath)) {
+                return response()->json(['message' => 'File not found on server'], 404);
+            }
+
+            $mimeTypes = [
+                'jpg' => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'png' => 'image/png',
+                'pdf' => 'application/pdf',
+                'doc' => 'application/msword',
+                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'xls' => 'application/vnd.ms-excel',
+                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'mp4' => 'video/mp4',
+            ];
+
+            $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+            $contentType = $mimeTypes[$extension] ?? 'application/octet-stream';
+
+            // For images, PDFs, and videos, display inline; for others, download
+            $inlineTypes = ['jpg', 'jpeg', 'png', 'pdf', 'mp4'];
+            if (in_array($extension, $inlineTypes)) {
+                return response()->file($fullPath, [
+                    'Content-Type' => $contentType,
+                ]);
+            } else {
+                return response()->download($fullPath, $attachment->original_name, [
+                    'Content-Type' => $contentType,
+                ]);
+            }
+        }
+
+        return response()->json(['message' => 'No file or content available'], 404);
+    }
 }
 
