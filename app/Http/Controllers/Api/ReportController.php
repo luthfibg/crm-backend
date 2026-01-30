@@ -63,7 +63,7 @@ class ReportController extends Controller
 
         // Scope customers
         if ($actor->role === 'administrator') {
-            $customers = Customer::with(['user', 'kpi', 'summary'])
+            $customers = Customer::with(['user', 'kpi', 'summaries'])
                 ->with(['products'])
                 ->with(['progresses' => function($q) use ($start, $end) {
                     $q->whereBetween('time_completed', [$start, $end]);
@@ -71,7 +71,7 @@ class ReportController extends Controller
                 ->get();
         } else {
             $customers = $actor->customers()
-                ->with(['user', 'kpi', 'summary'])
+                ->with(['user', 'kpi', 'summaries'])
                 ->with(['products'])
                 ->with(['progresses' => function($q) use ($start, $end) {
                     $q->whereBetween('time_completed', [$start, $end]);
@@ -146,8 +146,40 @@ class ReportController extends Controller
                 });
 
             // Get summary for this customer (current KPI)
-            $summary = $customer->summary;
+            $summary = $customer->summaries->first();
             $kesimpulan = $summary ? $summary->summary : '-';
+
+            // Get After Sales daily goal inputs (kpi_id = 6)
+            $afterSalesKpiId = 6;
+            $afterSalesDailyGoals = DailyGoal::where('kpi_id', $afterSalesKpiId)
+                ->where('description', 'NOT LIKE', 'Auto-generated%')
+                ->get(['id', 'description']);
+
+            // Map after sales daily goals to columns
+            $jadwalKunjunganPresales = '';
+            $garansiUnit = '';
+            $serialNumberUnit = '';
+
+            foreach ($afterSalesDailyGoals as $dg) {
+                $progress = Progress::where('daily_goal_id', $dg->id)
+                    ->where('customer_id', $customer->id)
+                    ->where('user_id', $customer->user_id)
+                    ->where('status', 'approved')
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+
+                if ($progress && $progress->user_input) {
+                    // Check description to determine which column it belongs to
+                    $desc = strtolower($dg->description);
+                    if (strpos($desc, 'jadwal kunjungan presales') !== false || strpos($desc, 'jadwal kunjungan') !== false) {
+                        $jadwalKunjunganPresales = $progress->user_input;
+                    } elseif (strpos($desc, 'garansi') !== false) {
+                        $garansiUnit = $progress->user_input;
+                    } elseif (strpos($desc, 'serial number') !== false || strpos($desc, 'sn') !== false) {
+                        $serialNumberUnit = $progress->user_input;
+                    }
+                }
+            }
 
             // Get product names (comma-separated)
             $products = $customer->products;
@@ -174,6 +206,9 @@ class ReportController extends Controller
                 'harga_penawaran' => $products->isNotEmpty() ? 'Rp ' . number_format($products->sum('default_price'), 0, ',', '.') : '-',
                 'harga_deal' => $products->isNotEmpty() ? 'Rp ' . number_format($totalDealValue, 0, ',', '.') : '-',
                 'kpi_progress' => $kpiPercentOverall,
+                'jadwal_kunjungan_presales' => $jadwalKunjunganPresales,
+                'garansi_unit' => $garansiUnit,
+                'serial_number_unit' => $serialNumberUnit,
                 'position' => $customer->position,
                 'total_assigned' => $totalAssigned,
                 'approved_in_period' => $approvedInPeriod,
@@ -201,7 +236,10 @@ class ReportController extends Controller
                     'Kesimpulan', 
                     'Harga Penawaran', 
                     'Harga Deal', 
-                    'KPI Progress %'
+                    'KPI Progress %',
+                    'Jadwal Kunjungan Presales',
+                    'Garansi Unit/Barang',
+                    'Serial Number Unit/Barang'
                 ]);
                 foreach ($rows as $r) {
                     // Escape kesimpulan for CSV (handle commas, quotes, newlines)
@@ -218,7 +256,10 @@ class ReportController extends Controller
                         '"' . $kesimpulan . '"',
                         $r['harga_penawaran'],
                         $r['harga_deal'],
-                        $r['kpi_progress'] . '%'
+                        $r['kpi_progress'] . '%',
+                        $r['jadwal_kunjungan_presales'],
+                        $r['garansi_unit'],
+                        $r['serial_number_unit']
                     ]);
                 }
                 fclose($out);
@@ -270,3 +311,4 @@ class ReportController extends Controller
         return response($view->render(), 200, ['Content-Type' => 'text/html']);
     }
 }
+
