@@ -165,18 +165,29 @@ class ReportController extends Controller
                     ->where('customer_id', $customer->id)
                     ->where('user_id', $customer->user_id)
                     ->where('status', 'approved')
+                    ->with(['attachments']) // Load attachments to get user input from content
                     ->orderBy('created_at', 'desc')
                     ->first();
 
-                if ($progress && $progress->user_input) {
-                    // Check description to determine which column it belongs to
-                    $desc = strtolower($dg->description);
-                    if (strpos($desc, 'jadwal kunjungan presales') !== false || strpos($desc, 'jadwal kunjungan') !== false) {
-                        $jadwalKunjunganPresales = $progress->user_input;
-                    } elseif (strpos($desc, 'garansi') !== false) {
-                        $garansiUnit = $progress->user_input;
-                    } elseif (strpos($desc, 'serial number') !== false || strpos($desc, 'sn') !== false) {
-                        $serialNumberUnit = $progress->user_input;
+                if ($progress) {
+                    // Get user input from attachment's content field
+                    $userInput = '';
+                    if ($progress->attachments && $progress->attachments->isNotEmpty()) {
+                        // Get content from the first attachment that has content
+                        $attachment = $progress->attachments->firstWhere('content', '!=', '');
+                        $userInput = $attachment ? $attachment->content : '';
+                    }
+
+                    if ($userInput) {
+                        // Check description to determine which column it belongs to
+                        $desc = strtolower($dg->description);
+                        if (strpos($desc, 'jadwal kunjungan presales') !== false || strpos($desc, 'jadwal kunjungan') !== false) {
+                            $jadwalKunjunganPresales = $userInput;
+                        } elseif (strpos($desc, 'garansi') !== false) {
+                            $garansiUnit = $userInput;
+                        } elseif (strpos($desc, 'serial number') !== false || strpos($desc, 'sn') !== false) {
+                            $serialNumberUnit = $userInput;
+                        }
                     }
                 }
             }
@@ -299,6 +310,9 @@ class ReportController extends Controller
                     'end' => $end,
                     'rows' => $rows,
                 ]);
+
+                // Set paper to landscape and margins
+                $pdf->setPaper('a4', 'landscape');
 
                 return $pdf->download("progress_report_{$label}.pdf");
             } catch (\Exception $e) {
