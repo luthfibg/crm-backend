@@ -311,6 +311,9 @@ class ReportController extends Controller
                     'rows' => $rows,
                 ]);
 
+                // Set paper to landscape and margins
+                $pdf->setPaper('a4', 'landscape');
+
                 return $pdf->download("progress_report_{$label}.pdf");
             } catch (\Exception $e) {
                 Log::error('PDF generation error: ' . $e->getMessage());
