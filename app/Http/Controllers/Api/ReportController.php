@@ -161,7 +161,36 @@ class ReportController extends Controller
 
             // Get summary for this customer (current KPI)
             $summary = $customer->summaries->first();
-            $kesimpulan = $summary ? $summary->summary : '-';
+
+            // Get last follow-up time (last time_completed from progresses)
+            $lastFollowUpRaw = Progress::where('customer_id', $customer->id)
+                ->where('user_id', $customer->user_id)
+                ->whereNotNull('time_completed')
+                ->orderBy('time_completed', 'desc')
+                ->value('time_completed');
+
+            // Convert to Carbon instance if it's a string, otherwise use customer created_at as fallback
+            if ($lastFollowUpRaw) {
+                $lastFollowUp = \Carbon\Carbon::parse($lastFollowUpRaw);
+            } else {
+                // Fallback to customer created_at if no progress entries
+                $lastFollowUp = $customer->created_at ? \Carbon\Carbon::parse($customer->created_at) : null;
+            }
+
+            // Format last follow-up date
+            $lastFollowUpText = '';
+            if ($lastFollowUp) {
+                // Format: "Senin, 01 Februari 2026"
+                $lastFollowUpText = $lastFollowUp->locale('id_ID')->format('l, d F Y');
+            }
+
+            // If no summary exists, show message about incomplete mandatory goals
+            if ($summary) {
+                $kesimpulan = $summary->summary;
+            } else {
+                $kesimpulan = "Target mandatory yang sekarang ini masih belum diselesaikan" .
+                    ($lastFollowUpText ? "\n(Data ini terakhir diupdate {$lastFollowUpText})" : '');
+            }
 
             // Get After Sales daily goal inputs (kpi_id = 6)
             $afterSalesKpiId = 6;
@@ -241,6 +270,7 @@ class ReportController extends Controller
                 'first_submission' => $firstSubmission,
                 'last_submission' => $lastSubmission,
                 'daily_details' => $dailyDetails,
+                'approved_daily_goals_count' => $totalApprovedOverall,
             ];
         });
 
@@ -252,16 +282,16 @@ class ReportController extends Controller
                 $out = fopen('php://output', 'w');
                 // Header with new columns
                 fputcsv($out, [
-                    'No', 
-                    'Sales', 
-                    'Customer', 
-                    'Institution', 
-                    'Product', 
-                    'Status', 
-                    'Kesimpulan', 
-                    'Harga Penawaran', 
-                    'Harga Deal', 
-                    'KPI Progress %',
+                    'No',
+                    'Sales',
+                    'Customer',
+                    'Institution',
+                    'Product',
+                    'Status',
+                    'Keterangan Status',
+                    'Kesimpulan',
+                    'Harga Penawaran',
+                    'Harga Deal',
                     'Jadwal Kunjungan Presales',
                     'Garansi Unit/Barang',
                     'Serial Number Unit/Barang'
@@ -270,7 +300,10 @@ class ReportController extends Controller
                     // Escape kesimpulan for CSV (handle commas, quotes, newlines)
                     $kesimpulan = str_replace(["\r\n", "\n", "\r"], ' ', $r['kesimpulan']);
                     $kesimpulan = str_replace('"', '""', $kesimpulan);
-                    
+
+                    // Keterangan Status: "{count} mandatory selesai"
+                    $keteranganStatus = $r['approved_daily_goals_count'] . ' mandatory selesai';
+
                     fputcsv($out, [
                         $r['no'],
                         $r['sales_name'],
@@ -278,10 +311,10 @@ class ReportController extends Controller
                         $r['institution'],
                         $r['product'],
                         $r['status'],
+                        $keteranganStatus,
                         '"' . $kesimpulan . '"',
                         $r['harga_penawaran'],
                         $r['harga_deal'],
-                        $r['kpi_progress'] . '%',
                         $r['jadwal_kunjungan_presales'],
                         $r['garansi_unit'],
                         $r['serial_number_unit']

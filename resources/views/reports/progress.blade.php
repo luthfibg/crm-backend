@@ -26,13 +26,13 @@
                 <th style="width:80px">Customer</th>
                 <th style="width:60px">Product</th>
                 <th style="width:70px">Status</th>
+                <th style="width:120px">Keterangan Status</th>
                 <th style="width:150px">Kesimpulan</th>
                 <th style="width:60px">Harga Penawaran</th>
                 <th style="width:60px">Harga Deal</th>
                 <th style="width:80px">Jadwal Kunjungan Presales</th>
                 <th style="width:70px">Garansi Unit/Barang</th>
                 <th style="width:70px">Serial Number Unit/Barang</th>
-                <th class="text-right" style="width:50px">KPI Progress</th>
             </tr>
         </thead>
         <tbody>
@@ -48,13 +48,13 @@
                     </td>
                     <td>{{ $r['product'] }}</td>
                     <td>{{ $r['status'] }}</td>
+                    <td>{{ $r['approved_daily_goals_count'] }} mandatory selesai</td>
                     <td class="small">{{ $r['kesimpulan'] }}</td>
                     <td>{{ $r['harga_penawaran'] }}</td>
                     <td>{{ $r['harga_deal'] }}</td>
                     <td class="small">{{ $r['jadwal_kunjungan_presales'] }}</td>
                     <td class="small">{{ $r['garansi_unit'] }}</td>
                     <td class="small">{{ $r['serial_number_unit'] }}</td>
-                    <td class="text-right">{{ $r['kpi_progress'] }}%</td>
                 </tr>
             @endforeach
         </tbody>

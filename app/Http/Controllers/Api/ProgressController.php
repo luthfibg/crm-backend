@@ -51,6 +51,15 @@ class ProgressController extends Controller
         return $this->saveProgress($request, $dailyGoal, $customer, $actor);
     }
 
+    private function calculateProgressValue($userId, $kpiId)
+    {
+        $totalDaily = DailyGoal::where('user_id', $userId)
+            ->where('kpi_id', $kpiId)
+            ->where('description', 'NOT LIKE', 'Auto-generated%')
+            ->count();
+        return $totalDaily ? round(100 / $totalDaily, 2) : 0;
+    }
+
     private function saveProgress($request, $dailyGoal, $customer, $actor)
     {
         DB::beginTransaction();
@@ -59,16 +68,17 @@ class ProgressController extends Controller
             $isValid = $validationResult['is_valid'];
             $reviewNote = $validationResult['message'];
 
-            $totalDaily = DailyGoal::where('user_id', $dailyGoal->user_id)
-                ->where('kpi_id', $dailyGoal->kpi_id)
-                ->where('description', 'NOT LIKE', 'Auto-generated%')
-                ->count();
-            $progressValue = $totalDaily ? round(100 / $totalDaily, 2) : 0;
+            // Calculate progress value based on total daily goals
+            $progressValue = $this->calculateProgressValue($dailyGoal->user_id, $dailyGoal->kpi_id);
 
             $progress = Progress::create([
-                'user_id' => $actor->id, 'kpi_id' => $dailyGoal->kpi_id,
-                'daily_goal_id' => $dailyGoal->id, 'customer_id' => $customer->id,
-                'time_completed' => now(), 'progress_value' => $isValid ? $progressValue : 0,
+                'user_id' => $actor->id,
+                'sales_id' => $customer->user_id, // Store sales_id for consistency
+                'kpi_id' => $dailyGoal->kpi_id,
+                'daily_goal_id' => $dailyGoal->id,
+                'customer_id' => $customer->id,
+                'time_completed' => now(),
+                'progress_value' => $isValid ? $progressValue : 0,
                 'progress_date' => now()->toDateString(),
                 'status' => $isValid ? 'approved' : 'rejected',
                 'reviewer_note' => $reviewNote
@@ -77,9 +87,18 @@ class ProgressController extends Controller
             if ($request->hasFile('evidence')) {
                 $file = $request->file('evidence');
                 $path = $file->store('progress_attachments', 'public');
-                ProgressAttachment::create(['progress_id' => $progress->id, 'file_path' => $path, 'type' => $dailyGoal->input_type, 'original_name' => $file->getClientOriginalName()]);
+                ProgressAttachment::create([
+                    'progress_id' => $progress->id,
+                    'file_path' => $path,
+                    'type' => $dailyGoal->input_type,
+                    'original_name' => $file->getClientOriginalName()
+                ]);
             } elseif ($request->evidence && !in_array($dailyGoal->input_type, ['file', 'image', 'video'])) {
-                ProgressAttachment::create(['progress_id' => $progress->id, 'content' => $request->evidence, 'type' => $dailyGoal->input_type]);
+                ProgressAttachment::create([
+                    'progress_id' => $progress->id,
+                    'content' => $request->evidence,
+                    'type' => $dailyGoal->input_type
+                ]);
             }
 
             if ($isValid) {
@@ -91,13 +110,23 @@ class ProgressController extends Controller
             $isKpiCompleted = false;
             if ($isValid) {
                 $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
-                $totalAssigned = DailyGoal::where('user_id', $actor->id)->where('kpi_id', $currentKpiId)->where('description', 'NOT LIKE', 'Auto-generated%')->count();
-                $totalApproved = Progress::where('customer_id', $customer->id)->where('kpi_id', $currentKpiId)->where('user_id', $actor->id)->where('status', 'approved')->count();
+                // Use sales_id for consistency
+                $totalAssigned = DailyGoal::where('user_id', $customer->user_id)
+                    ->where('kpi_id', $currentKpiId)
+                    ->where('description', 'NOT LIKE', 'Auto-generated%')
+                    ->count();
+                $totalApproved = Progress::where('customer_id', $customer->id)
+                    ->where('kpi_id', $currentKpiId)
+                    ->where('sales_id', $customer->user_id)
+                    ->where('status', 'approved')
+                    ->count();
                 $isKpiCompleted = $totalAssigned > 0 && $totalApproved >= $totalAssigned;
             }
 
             return response()->json([
-                'status' => true, 'is_valid' => $isValid, 'message' => $reviewNote,
+                'status' => true,
+                'is_valid' => $isValid,
+                'message' => $reviewNote,
                 'kpi_completed' => $isKpiCompleted,
             ], 201);
 
@@ -118,7 +147,6 @@ class ProgressController extends Controller
             if ($evidence === null || $evidence === '' || strlen(trim($evidence)) < 5) {
                 return ['is_valid' => false, 'message' => 'Jawaban terlalu pendek'];
             }
-
             return $this->smartTextValidation($evidence, $dailyGoal);
         }
 
@@ -133,48 +161,34 @@ class ProgressController extends Controller
 
         if ($inputType === 'date') {
             if (!$evidence) return ['is_valid' => false, 'message' => 'Tanggal wajib diisi'];
-
             $evidenceLower = strtolower($evidence);
-
             if (preg_match('/belum\s*ada\s*target/i', $evidenceLower)) {
                 return ['is_valid' => false, 'message' => 'Target belum ada'];
             }
-
             if (preg_match('/sudah\s*ada\s*target/i', $evidenceLower)) {
                 return ['is_valid' => true, 'message' => 'Target sudah ada'];
             }
-
-            $datePatterns = [
-                '/\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})\b/',
-                '/\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})\b/',
-            ];
-
+            $datePatterns = ['/\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})\b/', '/\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})\b/'];
             foreach ($datePatterns as $pattern) {
                 if (preg_match($pattern, $evidence)) {
                     return ['is_valid' => true, 'message' => 'Format tanggal valid'];
                 }
             }
-
             return ['is_valid' => false, 'message' => 'Format tanggal tidak valid'];
         }
 
         if ($inputType === 'currency') {
             if (!$evidence) return ['is_valid' => false, 'message' => 'Nominal wajib diisi'];
-
             $evidenceLower = strtolower($evidence);
-
             if (preg_match('/belum\s*(ada)?\s*target/i', $evidenceLower)) {
                 return ['is_valid' => false, 'message' => 'Target harga belum ada'];
             }
-
             if (preg_match('/free|gratis|tanpa\s*biaya/i', $evidenceLower)) {
                 return ['is_valid' => true, 'message' => 'Layanan Gratis'];
             }
-
             if (preg_match('/sudah\s*(ada)?\s*target|sudah\s*(di)?\s*nego/i', $evidenceLower)) {
                 return ['is_valid' => true, 'message' => 'Sudah ada target/nego'];
             }
-
             $currencyPattern = '/(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i';
             if (preg_match($currencyPattern, $evidence, $matches)) {
                 $amount = preg_replace('/[.,]/', '', $matches[1]);
@@ -182,13 +196,11 @@ class ProgressController extends Controller
                     return ['is_valid' => true, 'message' => 'Nominal valid'];
                 }
             }
-
             return ['is_valid' => false, 'message' => 'Format nominal tidak valid'];
         }
 
         if (in_array($inputType, ['file', 'image', 'video'])) {
             if (!$file) return ['is_valid' => false, 'message' => 'File wajib diupload'];
-
             if ($inputType === 'image') {
                 $validMimes = ['image/jpeg', 'image/jpg', 'image/png'];
                 if (in_array($file->getMimeType(), $validMimes)) {
@@ -196,7 +208,6 @@ class ProgressController extends Controller
                 }
                 return ['is_valid' => false, 'message' => 'File harus gambar (JPG/PNG)'];
             }
-
             return ['is_valid' => true, 'message' => 'File valid'];
         }
 
@@ -206,34 +217,19 @@ class ProgressController extends Controller
     private function smartTextValidation($evidence, $dailyGoal)
     {
         $evidenceText = strtolower($evidence);
-
-        // 1. Check for explicit completion (HIGH PRIORITY)
-        $completionPatterns = [
-            'sudah敷的电话', 'sudah melakukan', 'sudah koordinasi', 'sudah komunikasi',
-            'sudah konfirmasi', 'sudah bertemu', 'sudah敷的电话'
-        ];
-
+        $completionPatterns = ['sudah melakukan', 'sudah koordinasi', 'sudah komunikasi', 'sudah konfirmasi', 'sudah bertemu'];
         foreach ($completionPatterns as $pattern) {
             if (str_contains($evidenceText, $pattern)) {
                 return ['is_valid' => true, 'message' => 'Aktivitas sudah dilakukan'];
             }
         }
-
-        // 2. Check for progress indicators (MEDIUM PRIORITY)
-        $progressPatterns = [
-            'ada diskusi lanjutan', 'akan dikonsultasikan', 'sedang dalam proses',
-            'sudah dijadwalkan', 'sudah dirapatkan', 'sedang diproses'
-        ];
-
+        $progressPatterns = ['ada diskusi lanjutan', 'akan dikonsultasikan', 'sedang dalam proses', 'sudah dijadwalkan', 'sedang diproses'];
         foreach ($progressPatterns as $pattern) {
             if (str_contains($evidenceText, $pattern)) {
                 return ['is_valid' => true, 'message' => 'Ada aktivitas yang sedang/akan dilakukan'];
             }
         }
-
-        // 3. Check for explicit failure (only reject if no positive context)
-        $failurePatterns = ['belum melakukan', 'belum diskusi', 'belum koordinasi', 'gagal敷的电话', 'tidak jadi', 'ditolak'];
-
+        $failurePatterns = ['belum melakukan', 'belum diskusi', 'belum koordinasi', 'tidak jadi', 'ditolak'];
         $hasFailure = false;
         foreach ($failurePatterns as $pattern) {
             if (str_contains($evidenceText, $pattern)) {
@@ -241,8 +237,6 @@ class ProgressController extends Controller
                 break;
             }
         }
-
-        // 4. Check for activity keywords
         $activityKeywords = ['diskusi', 'koordinasi', 'komunikasi', 'rapat', 'meeting', 'pertemuan'];
         $activityCount = 0;
         foreach ($activityKeywords as $keyword) {
@@ -250,8 +244,6 @@ class ProgressController extends Controller
                 $activityCount++;
             }
         }
-
-        // 5. Check for stakeholder mentions
         $stakeholderKeywords = ['pimpinan', 'kepala', 'direktur', 'manager', 'pbj', 'ppk', 'tim pengadaan', 'pihak terkait'];
         $hasStakeholder = false;
         foreach ($stakeholderKeywords as $keyword) {
@@ -260,8 +252,6 @@ class ProgressController extends Controller
                 break;
             }
         }
-
-        // 6. Check for next steps
         $nextStepPatterns = ['akan ditindaklanjuti', 'akan dilanjutkan', 'selanjutnya'];
         $hasNextStep = false;
         foreach ($nextStepPatterns as $pattern) {
@@ -270,28 +260,18 @@ class ProgressController extends Controller
                 break;
             }
         }
-
-        // Approve if activity keywords present with stakeholder or next step
         if ($activityCount >= 1 && ($hasStakeholder || $hasNextStep)) {
             return ['is_valid' => true, 'message' => 'Ada indikasi aktivitas dengan pihak terkait'];
         }
-
-        // Approve if multiple activity keywords
         if ($activityCount >= 2) {
             return ['is_valid' => true, 'message' => 'Terdapat aktivitas yang relevan'];
         }
-
-        // Reject only if explicit failure without positive context
         if ($hasFailure) {
             return ['is_valid' => false, 'message' => 'Aktivitas belum dilakukan'];
         }
-
-        // Fallback: detailed answer (>=50 chars) = approve
         if (strlen(trim($evidence)) >= 50) {
             return ['is_valid' => true, 'message' => 'Jawaban detail diterima'];
         }
-
-        // Default: reject with guidance
         return ['is_valid' => false, 'message' => 'Jawaban kurang detail tentang aktivitas yang dilakukan'];
     }
 
@@ -312,9 +292,12 @@ class ProgressController extends Controller
             $validationResult = $this->validateEvidence($dailyGoal, $request);
             $isValid = $validationResult['is_valid'];
 
+            // Calculate progress value based on total daily goals (same as store method)
+            $progressValue = $this->calculateProgressValue($dailyGoal->user_id, $dailyGoal->kpi_id);
+
             $progress->update([
                 'time_completed' => now(),
-                'progress_value' => $isValid ? 10 : 0,
+                'progress_value' => $isValid ? $progressValue : 0,
                 'progress_date' => now()->toDateString(),
                 'status' => $isValid ? 'approved' : 'rejected',
                 'reviewer_note' => $validationResult['message']
@@ -353,6 +336,7 @@ class ProgressController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
+            Log::error("Progress update error: " . $e->getMessage());
             return response()->json(['status' => false, 'error' => 'Terjadi kesalahan'], 500);
         }
     }
@@ -362,7 +346,9 @@ class ProgressController extends Controller
         $actor = $request->user();
         $progress = Progress::findOrFail($progressId);
 
-        if ($progress->user_id !== $actor->id) {
+        // Use sales_id for consistency check
+        $salesId = $progress->sales_id ?? $progress->user_id;
+        if ($salesId !== $actor->id) {
             return response()->json(['status' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -392,12 +378,8 @@ class ProgressController extends Controller
         }
     }
 
-    /**
-     * Get attachment file for a progress entry.
-     */
     public function getAttachment(Request $request, $progressId)
     {
-        // For file downloads from window.open, handle token from query param
         $token = $request->get('token');
         if ($token) {
             $tokenModel = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
@@ -417,7 +399,6 @@ class ProgressController extends Controller
             return response()->json(['message' => 'Attachment not found'], 404);
         }
 
-        // If it's a content-based attachment (text, etc.)
         if ($attachment->content) {
             return response()->json([
                 'type' => $attachment->type,
@@ -426,20 +407,16 @@ class ProgressController extends Controller
             ]);
         }
 
-        // If it's a file-based attachment
         if ($attachment->file_path) {
             $fullPath = storage_path('app/public/' . $attachment->file_path);
-            
+
             if (!file_exists($fullPath)) {
                 return response()->json(['message' => 'File not found on server'], 404);
             }
 
             $mimeTypes = [
-                'jpg' => 'image/jpeg',
-                'jpeg' => 'image/jpeg',
-                'png' => 'image/png',
-                'pdf' => 'application/pdf',
-                'doc' => 'application/msword',
+                'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png',
+                'pdf' => 'application/pdf', 'doc' => 'application/msword',
                 'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 'xls' => 'application/vnd.ms-excel',
                 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -449,20 +426,14 @@ class ProgressController extends Controller
             $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
             $contentType = $mimeTypes[$extension] ?? 'application/octet-stream';
 
-            // For images, PDFs, and videos, display inline; for others, download
             $inlineTypes = ['jpg', 'jpeg', 'png', 'pdf', 'mp4'];
             if (in_array($extension, $inlineTypes)) {
-                return response()->file($fullPath, [
-                    'Content-Type' => $contentType,
-                ]);
+                return response()->file($fullPath, ['Content-Type' => $contentType]);
             } else {
-                return response()->download($fullPath, $attachment->original_name, [
-                    'Content-Type' => $contentType,
-                ]);
+                return response()->download($fullPath, $attachment->original_name, ['Content-Type' => $contentType]);
             }
         }
 
         return response()->json(['message' => 'No file or content available'], 404);
     }
 }
-
