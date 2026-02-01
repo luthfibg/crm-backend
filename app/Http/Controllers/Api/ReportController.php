@@ -61,23 +61,37 @@ class ReportController extends Controller
             $label = $start->format('Y-m');
         }
 
-        // Scope customers
+        // Scope customers with different filters based on range
+        // Daily: filter by progresses.time_completed (when daily goals were submitted)
+        // Monthly: filter by status_changed_at (when prospect status changed)
         if ($actor->role === 'administrator') {
-            $customers = Customer::with(['user', 'kpi', 'summaries'])
-                ->with(['products'])
-                ->with(['progresses' => function($q) use ($start, $end) {
-                    $q->whereBetween('time_completed', [$start, $end]);
-                }])
-                ->get();
+            $customersQuery = Customer::with(['user', 'kpi', 'summaries'])
+                ->with(['products']);
         } else {
-            $customers = $actor->customers()
+            $customersQuery = $actor->customers()
                 ->with(['user', 'kpi', 'summaries'])
-                ->with(['products'])
-                ->with(['progresses' => function($q) use ($start, $end) {
-                    $q->whereBetween('time_completed', [$start, $end]);
-                }])
-                ->get();
+                ->with(['products']);
         }
+
+        if ($range === 'daily') {
+            // Daily: filter customers that have at least one progress submission on that day
+            $customersQuery->whereHas('progresses', function($q) use ($start, $end) {
+                $q->whereBetween('time_completed', [$start, $end]);
+            });
+        } else {
+            // Monthly: filter customers by status_changed_at
+            $customersQuery->whereBetween('status_changed_at', [$start, $end]);
+        }
+
+        $customers = $customersQuery->get();
+
+        // Load progresses for the period
+        $customers = $customers->map(function($customer) use ($start, $end) {
+            $customer->load(['progresses' => function($q) use ($start, $end) {
+                $q->whereBetween('time_completed', [$start, $end]);
+            }]);
+            return $customer;
+        });
 
         if ($filterUserId) {
             $customers = $customers->filter(fn($c) => $c->user_id == $filterUserId)->values();
