@@ -14,6 +14,30 @@ class CustomerResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // Get product names as comma-separated string
+        $productNames = $this->whenLoaded('products', function () {
+            return $this->products->pluck('name')->implode(', ');
+        }, '');
+
+        // Also check if product_ids exists as JSON array in the column
+        $productIdsFromColumn = [];
+        if ($this->product_ids && is_string($this->product_ids)) {
+            $decoded = json_decode($this->product_ids, true);
+            if (is_array($decoded)) {
+                $productIdsFromColumn = $decoded;
+            }
+        } elseif (is_array($this->product_ids)) {
+            $productIdsFromColumn = $this->product_ids;
+        }
+
+        // If we have product_ids but products relationship is not loaded, get names
+        $productNamesFromIds = '';
+        if (empty($productNames) && !empty($productIdsFromColumn)) {
+            $productNamesFromIds = \App\Models\Product::whereIn('id', $productIdsFromColumn)
+                ->pluck('name')
+                ->implode(', ');
+        }
+
         return [
             'id' => $this->id,
             'pic' => $this->pic,
@@ -27,8 +51,14 @@ class CustomerResource extends JsonResource
             'updated_at' => $this->updated_at,
             'status' => $this->status,
             'status_changed_at' => $this->status_changed_at,
-            'user_id' => $this->user_id, // Always include user_id for debugging and mapping
+            'user_id' => $this->user_id,
             'kpi_id' => $this->kpi_id,
+            'current_kpi_id' => $this->current_kpi_id,
+            'display_name' => $this->display_name,
+            'sub_category' => $this->sub_category,
+            // Products as comma-separated names
+            'products' => $productNames ?: $productNamesFromIds,
+            'product_ids' => $productIdsFromColumn,
         ];
     }
 }

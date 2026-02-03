@@ -24,7 +24,7 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $query = Customer::query();
+        $query = Customer::with(['products']);
 
         // Allow dashboard access for all sales if ?dashboard=1
         if ($user->role !== 'administrator') {
@@ -119,7 +119,7 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $customer = Customer::find($id);
+        $customer = Customer::with(['products'])->find($id);
         if (! $customer) {
             return response()->json(['message' => 'Customer not found.'], 404);
         }
@@ -194,7 +194,7 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $query = Customer::query();
+        $query = Customer::with(['products']);
 
         // Only get customers belonging to the current user (unless admin)
         if ($user->role !== 'administrator') {

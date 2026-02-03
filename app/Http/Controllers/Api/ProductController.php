@@ -200,5 +200,28 @@ class ProductController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get product statistics (total, active, inactive).
+     */
+    public function statistics(): JsonResponse
+    {
+        try {
+            $total = Product::count();
+            $active = Product::where('is_active', true)->count();
+            $inactive = Product::where('is_active', false)->count();
+
+            return response()->json([
+                'total' => $total,
+                'active' => $active,
+                'inactive' => $inactive
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal memuat statistik produk',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }
 
