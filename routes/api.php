@@ -25,6 +25,9 @@ Route::get('/user', function (Request $request) {
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
+// Product list route - accessible to all authenticated users (for modal product selection)
+Route::get('/products/list', [ProductController::class, 'list']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::resource('users', UserController::class);
     // Custom customer routes (must be before resource to avoid conflict)
@@ -60,9 +63,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/progress', [ReportController::class, 'progressReport']);
     Route::delete('/progress/reset-prospect/{id}', [ProgressController::class, 'resetProspect']);
 
-    // Product routes
+    // Product routes - only for administrators (full CRUD)
     Route::resource('products', ProductController::class);
-    Route::get('/products/list', [ProductController::class, 'list']);
+    Route::get('/products/statistics', [ProductController::class, 'statistics']);
     Route::patch('/products/{id}/toggle-active', [ProductController::class, 'toggleActive']);
 
     // Customer-Product relationship routes
