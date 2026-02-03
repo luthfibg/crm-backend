@@ -22,11 +22,11 @@
         <thead>
             <tr>
                 <th class="text-center" style="width:30px">No</th>
-                <th style="width:80px">Sales</th>
-                <th style="width:80px">Customer</th>
-                <th style="width:60px">Product</th>
-                <th style="width:70px">Status</th>
-                <th style="width:120px">Keterangan Status</th>
+                <th style="width:60px">Sales</th>
+                <th style="width:90px">Customer</th>
+                <th style="width:120px">Product</th>
+                <th style="width:60px">Status</th>
+                <th style="width:60px">Keterangan Status</th>
                 <th style="width:150px">Kesimpulan</th>
                 <th style="width:60px">Harga Penawaran</th>
                 <th style="width:60px">Harga Deal</th>
