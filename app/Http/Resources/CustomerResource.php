@@ -12,12 +12,18 @@ class CustomerResource extends JsonResource
      *
      * @return array<string, mixed>
      */
-    public function toArray(Request $request): array
+public function toArray(Request $request): array
     {
-        // Get product names as comma-separated string
-        $productNames = $this->whenLoaded('products', function () {
-            return $this->products->pluck('name')->implode(', ');
-        }, '');
+        // Get products as array of objects when loaded
+        $productsArray = $this->whenLoaded('products', function () {
+            return $this->products->map(function($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'default_price' => $product->default_price,
+                ];
+            });
+        }, []);
 
         // Also check if product_ids exists as JSON array in the column
         $productIdsFromColumn = [];
@@ -30,13 +36,26 @@ class CustomerResource extends JsonResource
             $productIdsFromColumn = $this->product_ids;
         }
 
-        // If we have product_ids but products relationship is not loaded, get names
-        $productNamesFromIds = '';
-        if (empty($productNames) && !empty($productIdsFromColumn)) {
-            $productNamesFromIds = \App\Models\Product::whereIn('id', $productIdsFromColumn)
-                ->pluck('name')
-                ->implode(', ');
+        // If we have product_ids but products relationship is not loaded, get product details
+        $productsFromIds = [];
+        if (empty($productsArray) && !empty($productIdsFromColumn)) {
+            $productsFromIds = \App\Models\Product::whereIn('id', $productIdsFromColumn)
+                ->get(['id', 'name', 'default_price'])
+                ->map(function($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'default_price' => $product->default_price,
+                    ];
+                })
+                ->toArray();
         }
+
+        // Use products from relationship or fallback to productsFromIds
+        $finalProducts = !empty($productsArray) ? $productsArray : $productsFromIds;
+
+        // Get comma-separated names for backward compatibility
+        $productNames = collect($finalProducts)->pluck('name')->implode(', ');
 
         return [
             'id' => $this->id,
@@ -56,9 +75,12 @@ class CustomerResource extends JsonResource
             'current_kpi_id' => $this->current_kpi_id,
             'display_name' => $this->display_name,
             'sub_category' => $this->sub_category,
-            // Products as comma-separated names
-            'products' => $productNames ?: $productNamesFromIds,
+            // Products as array of objects
+            'products' => $finalProducts,
+            // Product IDs for reference
             'product_ids' => $productIdsFromColumn,
+            // Comma-separated product names (for backward compatibility)
+            'product_names' => $productNames,
         ];
     }
 }
