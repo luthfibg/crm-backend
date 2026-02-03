@@ -15,6 +15,51 @@ use Illuminate\Support\Facades\DB;
 class DailyGoalController extends Controller
 {
     /**
+     * Helper function to get customer products as array of objects
+     */
+    private function getCustomerProducts($customer)
+    {
+        // Try to get from relationship first
+        if ($customer->relationLoaded('products') && $customer->products->isNotEmpty()) {
+            return $customer->products->map(function($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'default_price' => $product->default_price,
+                ];
+            })->toArray();
+        }
+        
+        // Fallback: check product_ids column
+        $productIds = [];
+        if ($customer->product_ids) {
+            if (is_string($customer->product_ids)) {
+                $decoded = json_decode($customer->product_ids, true);
+                if (is_array($decoded)) {
+                    $productIds = $decoded;
+                }
+            } elseif (is_array($customer->product_ids)) {
+                $productIds = $customer->product_ids;
+            }
+        }
+        
+        if (!empty($productIds)) {
+            return \App\Models\Product::whereIn('id', $productIds)
+                ->get(['id', 'name', 'default_price'])
+                ->map(function($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'default_price' => $product->default_price,
+                    ];
+                })
+                ->toArray();
+        }
+        
+        return [];
+    }
+
+    /**
      * Display a listing of prospects dengan progress tracking
      * 
      * ⭐ PERBAIKAN:
@@ -29,12 +74,12 @@ class DailyGoalController extends Controller
     if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
 
     // Ambil customer dengan relasi KPI saat ini (exclude completed sales)
-    $query = \App\Models\Customer::with('kpi')
+    $query = \App\Models\Customer::with(['kpi', 'products'])
         ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])
         ->where('status', '!=', 'Completed');
     $customers = ($user->role === 'administrator') ?
         $query->get() :
-        $user->customers()->with('kpi')->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
+        $user->customers()->with(['kpi', 'products'])->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
 
     // 1. Ambil Master Daily Goals (Gunakan WHERE IN kpi_id agar lebih cepat)
     $allDailyGoals = DailyGoal::where('user_id', $user->id)
@@ -194,7 +239,7 @@ class DailyGoalController extends Controller
             $summaryRequired = !$summaryExists;
         }
 
-        return [
+return [
             'customer' => [
                 'id'           => $customer->id,
                 'pic'          => $customer->pic,
@@ -204,6 +249,8 @@ class DailyGoalController extends Controller
                 'display_name' => $customer->display_name,
                 'status'       => $customer->status,
                 'status_changed_at' => $customer->status_changed_at,
+                // Include products as array of objects
+                'products' => $this->getCustomerProducts($customer),
             ],
             'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
             'kpi_progress_history' => $kpiProgress,
