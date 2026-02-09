@@ -249,6 +249,7 @@ return [
                 'display_name' => $customer->display_name,
                 'status'       => $customer->status,
                 'status_changed_at' => $customer->status_changed_at,
+                'phone_number' => $customer->phone_number,
                 // Include products as array of objects
                 'products' => $this->getCustomerProducts($customer),
             ],
