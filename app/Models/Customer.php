@@ -20,6 +20,7 @@ class Customer extends Model
         'notes',
         'current_kpi_id',
         'status',
+        'is_history_sale',
         'category',
         'sub_category',
         'display_name',
@@ -36,6 +37,7 @@ class Customer extends Model
         'earned_points' => 'decimal:2',
         'max_points' => 'decimal:2',
         'score_percentage' => 'decimal:2',
+        'is_history_sale' => 'boolean',
     ];
 
     /**

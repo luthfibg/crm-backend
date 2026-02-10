@@ -328,7 +328,7 @@ class CustomerController extends Controller
     }
 
     /**
-     * Get completed sales history (customers with After Sales status)
+     * Get completed sales history (customers marked as history sales)
      */
     public function getSalesHistory(Request $request)
     {
@@ -338,14 +338,14 @@ class CustomerController extends Controller
         }
 
         $query = Customer::with(['user', 'kpi'])
-            ->where('status', 'Completed');
+            ->where('is_history_sale', true);
 
         // Filter by user if not admin
         if ($user->role !== 'administrator') {
             $query->where('user_id', $user->id);
         }
 
-        // Order by completion date (when status changed to After Sales)
+        // Order by completion date (when marked as history sale)
         $query->orderBy('status_changed_at', 'desc');
 
         $perPage = (int) $request->query('per_page', 15);
