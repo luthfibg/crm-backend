@@ -139,15 +139,20 @@ class SummaryController extends Controller
             DB::commit();
 
             $isFinalKPI = $currentKpi->code === 'after_sales';
+            $isHistorySale = $currentKpi->code === 'deal';
+            
             $message = $isFinalKPI
                 ? '✅ Selamat! After Sales telah berhasil diselesaikan.\n\nPenjualan berhasil dan akan disimpan ke dalam history.'
-                : "✅ Kesimpulan disimpan! KPI {$currentKpi->code} telah diselesaikan.\n\nProspek otomatis naik ke status berikutnya.";
+                : ($isHistorySale 
+                    ? "✅ Selamat! Deal Won berhasil diselesaikan.\n\nProspek naik ke After Sales dan tercatat di Sales History."
+                    : "✅ Kesimpulan disimpan! KPI {$currentKpi->code} telah diselesaikan.\n\nProspek otomatis naik ke status berikutnya.");
 
             return response()->json([
                 'status' => true,
                 'message' => $message,
                 'customer' => $customer->fresh(),
                 'is_final_kpi' => $isFinalKPI,
+                'is_history_sale' => $isHistorySale,
             ], 200);
 
         } catch (\Exception $e) {
@@ -273,6 +278,15 @@ class SummaryController extends Controller
                 'after_sales' => 'After Sales'
             ];
 
+            // Check if completing Deal Won - mark as history sale
+            if ($currentKpi->code === 'deal') {
+                $customer->is_history_sale = true;
+                Log::info("🎯 Deal Won completed - marking as history sale", [
+                    'customer_id' => $customer->id,
+                    'moving_to' => 'After Sales'
+                ]);
+            }
+
             $customer->current_kpi_id = $nextKpi->id;
             $customer->kpi_id = $nextKpi->id;
             $customer->status = $statusMap[$nextKpi->code] ?? $customer->status;
@@ -283,11 +297,13 @@ class SummaryController extends Controller
                 'customer_id' => $customer->id,
                 'old_kpi' => $currentKpi->code,
                 'new_kpi' => $nextKpi->code,
-                'new_status' => $customer->status
+                'new_status' => $customer->status,
+                'is_history_sale' => $customer->is_history_sale
             ]);
         } else {
             // No next KPI - this is the final completion (After Sales done)
             $customer->status = 'Completed';
+            $customer->is_history_sale = true;
             $customer->status_changed_at = now();
             $customer->save();
 
