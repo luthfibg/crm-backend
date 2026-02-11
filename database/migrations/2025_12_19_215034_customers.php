@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('customers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
-            $table->foreignId('kpi_id')->constrained('key_performance_indicators')->onDelete('cascade');
+            $table->foreignId('kpi_id')->constrained('kpis')->onDelete('cascade');
             $table->string('name');
             $table->string('institution')->nullable();
             $table->string('phone_number')->nullable();
