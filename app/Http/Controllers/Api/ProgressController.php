@@ -12,6 +12,7 @@ use App\Models\Progress;
 use App\Models\ProgressAttachment;
 use App\Models\DailyGoal;
 use App\Models\Customer;
+use App\Models\KPI;
 use App\Services\ScoringService;
 
 class ProgressController extends Controller
@@ -105,8 +106,6 @@ class ProgressController extends Controller
                 $this->scoringService->calculateKpiScore($customer->id, $dailyGoal->kpi_id, $actor->id);
             }
 
-            DB::commit();
-
             $isKpiCompleted = false;
             if ($isValid) {
                 $currentKpiId = $customer->current_kpi_id ?? $dailyGoal->kpi_id;
@@ -121,7 +120,38 @@ class ProgressController extends Controller
                     ->where('status', 'approved')
                     ->count();
                 $isKpiCompleted = $totalAssigned > 0 && $totalApproved >= $totalAssigned;
+
+                // If KPI is completed, move customer to next KPI and handle history
+                if ($isKpiCompleted) {
+                    $currentKpi = KPI::find($currentKpiId);
+                    
+                    // If Deal Won completed, mark as history sale
+                    if ($currentKpi && $currentKpi->code === 'deal') {
+                        $customer->is_history_sale = true;
+                        $customer->status_changed_at = now();
+                    }
+                    
+                    // Find next KPI by sequence
+                    if ($currentKpi) {
+                        $nextKpi = KPI::where('sequence', '>', $currentKpi->sequence)
+                            ->orderBy('sequence', 'asc')
+                            ->first();
+                        
+                        if ($nextKpi) {
+                            $customer->current_kpi_id = $nextKpi->id;
+                            $customer->kpi_id = $nextKpi->id; // Also update main kpi_id
+                        } else {
+                            // No next KPI, this is the final stage (after_sales)
+                            $customer->is_history_sale = true;
+                            $customer->status_changed_at = now();
+                        }
+                    }
+                    
+                    $customer->save();
+                }
             }
+
+            DB::commit();
 
             return response()->json([
                 'status' => true,
