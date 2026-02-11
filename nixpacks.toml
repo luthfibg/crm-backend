@@ -1,22 +1,21 @@
 # nixpacks.toml
 
 [phases.setup]
-# Pastikan semua ekstensi menggunakan awalan php84 sesuai dengan core php-nya
 nixPkgs = [
-    'php84', 
-    'php84Extensions.gd', 
-    'php84Extensions.pdo_mysql', 
-    'php84Extensions.zip', 
+    'php84',
     'php84Extensions.bcmath',
+    'php84Extensions.gd',
     'php84Extensions.mbstring',
-    'nodejs_22', 
+    'php84Extensions.pdo',
+    'php84Extensions.pdo_mysql',
+    'php84Extensions.zip',
+    'nodejs_22',
     'libzip'
 ]
 
 [phases.install]
-# Tambahkan flag --ignore-platform-req=ext-zip sebagai asuransi tambahan agar build tidak berhenti di sini
 cmds = [
-    'composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --ignore-platform-req=ext-zip'
+    'composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist'
 ]
 
 [phases.build]
@@ -30,6 +29,4 @@ cmds = [
 ]
 
 [start]
-# Menggunakan php artisan serve di produksi (Railway) sebenarnya kurang optimal, 
-# tapi tetap saya pertahankan sesuai setup Anda agar tidak merubah arsitektur.
 cmd = 'php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=${PORT:-8000}'
