@@ -35,9 +35,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::resource('users', UserController::class);
     // Custom customer routes (must be before resource to avoid conflict)
     Route::get('customers/available-for-prospect', [CustomerController::class, 'getAvailableForProspect']);
+    Route::get('customers/sales-history', [CustomerController::class, 'getSalesHistory']);
     Route::post('customers/{customer}/convert-to-prospect', [CustomerController::class, 'convertToProspect']);
     Route::resource('customers', CustomerController::class);
-    Route::get('customers/sales-history', [CustomerController::class, 'getSalesHistory']);
     Route::resource('kpis', KPIController::class);
     Route::resource('daily-goals', DailyGoalController::class);
     // additional helper route to fetch daily goals by user + kpi
