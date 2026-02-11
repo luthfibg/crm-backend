@@ -19,16 +19,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'http://127.0.0.1:3000',      // Local React dev
-        'http://localhost:3000',       // Local React dev
-        'http://127.0.0.1:8000',       // Local Laravel dev
-        'http://localhost:8000',       // Local Laravel dev
-        'http://crm-backend.local',    // Local network
-        'http://backend.test',         // Local test domain
-        'https://crm-frontend-dusky.vercel.app',     // Vercel frontend production
-        'https://vercel.app',          // Allow all Vercel preview deployments
-    ],
+    'allowed_origins' => ['*'],
 
     'allowed_headers' => ['*'],
 
