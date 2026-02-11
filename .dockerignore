@@ -1,0 +1,15 @@
+.env
+.env.backup
+.env.production
+.env.demo
+.git
+node_modules
+vendor
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+tests
+.phpunit.cache
+.vscode
+.idea
