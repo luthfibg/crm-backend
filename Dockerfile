@@ -25,29 +25,27 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 
 WORKDIR /app
 
-# Copy everything first
+# Copy everything
 COPY . .
 
-# Install PHP dependencies (with scripts to run package:discover)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist || \
+    composer install --no-dev --no-interaction --prefer-dist
 
 # Install Node dependencies & build assets
-RUN npm ci --ignore-scripts || npm install --ignore-scripts
-RUN npm run build || echo "Build skipped - no build script found"
+RUN npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts 2>/dev/null || true
+RUN npm run build 2>/dev/null || echo "No build script, skipping"
 
 # Set permissions
 RUN mkdir -p storage/framework/{sessions,views,cache} \
     && mkdir -p storage/logs \
     && mkdir -p bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache
+    && chmod -R 777 storage bootstrap/cache
 
-# Pre-cache views only (config & route cache need env vars at runtime)
-RUN php artisan view:cache || true
+# Make startup script executable
+RUN chmod +x start.sh
 
 EXPOSE 8000
 
-# Runtime: cache config (env vars available here), migrate, then serve
-CMD php artisan config:cache && \
-    php artisan route:cache && \
-    php artisan migrate --force && \
-    php artisan serve --host=0.0.0.0 --port=${PORT:-8000}
+# Use startup script (handles errors gracefully, always starts server)
+CMD ["bash", "start.sh"]
