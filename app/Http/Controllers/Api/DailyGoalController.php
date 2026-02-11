@@ -60,6 +60,35 @@ class DailyGoalController extends Controller
     }
 
     /**
+     * Helper function to auto-deactivate "After Sales" prospects after 10 days
+     */
+    private function autoDeactivateOldAfterSalesProspects()
+    {
+        $now = now();
+        $afterSalesProspects = \App\Models\Customer::where('status', 'After Sales')->get();
+        
+        foreach ($afterSalesProspects as $customer) {
+            if ($customer->status_changed_at) {
+                $daysSinceStatusChange = $now->diffInDays($customer->status_changed_at);
+                
+                if ($daysSinceStatusChange >= 10) {
+                    \Log::info("Auto-deactivating After Sales prospect", [
+                        'customer_id' => $customer->id,
+                        'pic' => $customer->pic,
+                        'institution' => $customer->institution,
+                        'days_in_after_sales' => $daysSinceStatusChange
+                    ]);
+                    
+                    $customer->update([
+                        'status' => 'Inactive',
+                        'status_changed_at' => $now
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
      * Display a listing of prospects dengan progress tracking
      * 
      * ⭐ PERBAIKAN:
@@ -67,11 +96,15 @@ class DailyGoalController extends Controller
      * - Tambah flag is_rejected untuk tasks yang ditolak
      * - Pastikan UI bisa show rejected tasks untuk di-resubmit
      * - Handle null sub_category untuk customer baru
+     * - Auto-deactivate After Sales prospects ketika >= 10 hari
      */
     public function index(Request $request)
 {
     $user = $request->user();
     if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
+
+    // Auto-deactivate old "After Sales" prospects (>= 10 hari)
+    $this->autoDeactivateOldAfterSalesProspects();
 
     // Ambil customer dengan relasi KPI saat ini (exclude completed sales)
     $query = \App\Models\Customer::with(['kpi', 'products'])
