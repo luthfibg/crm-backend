@@ -10,12 +10,24 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Rename 'price' to 'default_price'
-            $table->renameColumn('price', 'default_price');
+            // Cek apakah kolom 'price' masih ada (belum di-rename)
+            if (Schema::hasColumn('products', 'price')) {
+                $table->renameColumn('price', 'default_price');
+            }
+            
+            // Tambahkan kolom 'default_price' jika belum ada (untuk kasus sudah di-rename manual)
+            if (!Schema::hasColumn('products', 'default_price')) {
+                $table->decimal('default_price', 10, 2)->nullable()->after('name');
+            }
 
-            // Add missing columns
-            $table->tinyInteger('is_active')->default(1)->after('specification');
-            $table->bigInteger('created_by')->unsigned()->nullable()->after('is_active');
+            // Add missing columns hanya jika belum ada
+            if (!Schema::hasColumn('products', 'is_active')) {
+                $table->tinyInteger('is_active')->default(1)->after('specification');
+            }
+            
+            if (!Schema::hasColumn('products', 'created_by')) {
+                $table->bigInteger('created_by')->unsigned()->nullable()->after('is_active');
+            }
         });
     }
 
@@ -25,12 +37,19 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Rename 'default_price' back to 'price'
-            $table->renameColumn('default_price', 'price');
+            // Rename back hanya jika 'default_price' ada dan 'price' tidak ada
+            if (Schema::hasColumn('products', 'default_price') && !Schema::hasColumn('products', 'price')) {
+                $table->renameColumn('default_price', 'price');
+            }
 
-            // Drop added columns
-            $table->dropColumn('is_active');
-            $table->dropColumn('created_by');
+            // Drop columns jika ada
+            if (Schema::hasColumn('products', 'is_active')) {
+                $table->dropColumn('is_active');
+            }
+            
+            if (Schema::hasColumn('products', 'created_by')) {
+                $table->dropColumn('created_by');
+            }
         });
     }
 };
