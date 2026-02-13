@@ -22,6 +22,7 @@ class Customer extends Model
         'status',
         'is_history_sale',
         'category',
+        'source',
         'sub_category',
         'display_name',
         'status_changed_at',
