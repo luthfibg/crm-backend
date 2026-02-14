@@ -103,6 +103,8 @@ class DailyGoalController extends Controller
     $user = $request->user();
     if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
 
+    $isPrivileged = in_array($user->role, ['administrator', 'sales_manager']);
+
     // Auto-deactivate old "After Sales" prospects (>= 10 hari)
     $this->autoDeactivateOldAfterSalesProspects();
 
@@ -111,14 +113,29 @@ class DailyGoalController extends Controller
     $query = \App\Models\Customer::with(['kpi', 'products', 'user'])
         ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])
         ->where('status', '!=', 'Completed');
-    $customers = ($user->role === 'administrator') ?
-        $query->get() :
-        $user->customers()->with(['kpi', 'products', 'user'])->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
+
+    // Untuk admin/manager, ambil semua customer; untuk sales biasa hanya customer miliknya
+    $customers = $isPrivileged
+        ? $query->get()
+        : $user->customers()
+            ->with(['kpi', 'products', 'user'])
+            ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])
+            ->where('status', '!=', 'Completed')
+            ->get();
 
     // 1. Ambil Master Daily Goals (Gunakan WHERE IN kpi_id agar lebih cepat)
-    $allDailyGoals = DailyGoal::where('user_id', $user->id)
-        ->where('description', 'NOT LIKE', 'Auto-generated%')
-        ->get();
+    if ($isPrivileged) {
+        // Admin/manager: ambil daily goals untuk semua sales pemilik customer di pipeline
+        $salesUserIds = $customers->pluck('user_id')->filter()->unique()->values();
+        $allDailyGoals = DailyGoal::whereIn('user_id', $salesUserIds)
+            ->where('description', 'NOT LIKE', 'Auto-generated%')
+            ->get();
+    } else {
+        // Sales biasa: hanya daily goals miliknya sendiri
+        $allDailyGoals = DailyGoal::where('user_id', $user->id)
+            ->where('description', 'NOT LIKE', 'Auto-generated%')
+            ->get();
+    }
 
     // 2. Mapping Group (Pastikan konsisten dengan inputan Admin)
     $groupMapping = [
@@ -141,10 +158,16 @@ class DailyGoalController extends Controller
     ];
 
     // 3. Ambil data PROGRESS yang sudah APPROVED
-    $approvedByCustomer = Progress::where('user_id', $user->id)
+    $progressBase = Progress::whereNotNull('time_completed')
+        ->whereIn('customer_id', $customers->pluck('id'));
+
+    // Untuk sales biasa tetap dibatasi per user, untuk admin/manager dibuka semua
+    if (! $isPrivileged) {
+        $progressBase->where('user_id', $user->id);
+    }
+
+    $approvedByCustomer = (clone $progressBase)
         ->where('status', 'approved')
-        ->whereNotNull('time_completed')
-        ->whereIn('customer_id', $customers->pluck('id'))
         ->get()
         ->groupBy('customer_id')
         ->map(function($items) {
@@ -152,9 +175,7 @@ class DailyGoalController extends Controller
         });
 
     // 4. Ambil last follow-up time per customer (waktu terakhir input daily goal)
-    $lastFollowUpByCustomer = Progress::where('user_id', $user->id)
-        ->whereNotNull('time_completed')
-        ->whereIn('customer_id', $customers->pluck('id'))
+    $lastFollowUpByCustomer = (clone $progressBase)
         ->orderBy('time_completed', 'desc')
         ->get()
         ->groupBy('customer_id')
@@ -162,17 +183,31 @@ class DailyGoalController extends Controller
             return $items->first()->time_completed;
         });
 
-    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping) {
+    $result = $customers->map(function($customer) use ($user, $allDailyGoals, $approvedByCustomer, $lastFollowUpByCustomer, $groupMapping, $categoryToTypeMapping, $isPrivileged) {
         $currentKpi = $customer->kpi;
         $currentKpiId = $customer->current_kpi_id;
+
+        // Data user/sales yang menangani customer ini
+        $salesUser = $customer->user;
+        $effectiveUserIdForGoals = $isPrivileged
+            ? ($salesUser->id ?? null)
+            : $user->id;
         
         // Mapping Sub-Kategori
         $rawSub = strtoupper($customer->sub_category ?? '');
         $targetGoalGroup = $groupMapping[$rawSub] ?? $rawSub;
 
         // Fungsi Filter Goals yang lebih tangguh
-        $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customer, $targetGoalGroup, $categoryToTypeMapping) {
-            return $allDailyGoals->filter(function($goal) use ($kpiId, $customer, $targetGoalGroup, $categoryToTypeMapping) {
+        $getGoalsForCustomer = function($kpiId) use ($allDailyGoals, $customer, $targetGoalGroup, $categoryToTypeMapping, $effectiveUserIdForGoals) {
+            // Jika tidak ada owner untuk customer ini, tidak ada goals yang relevan
+            if (! $effectiveUserIdForGoals) {
+                return collect();
+            }
+
+            return $allDailyGoals->filter(function($goal) use ($kpiId, $customer, $targetGoalGroup, $categoryToTypeMapping, $effectiveUserIdForGoals) {
+                // Pastikan daily goal milik sales yang menangani customer ini
+                if ($goal->user_id != $effectiveUserIdForGoals) return false;
+
                 // Syarat 1: KPI ID harus cocok
                 if ($goal->kpi_id != $kpiId) return false;
 
@@ -230,12 +265,20 @@ class DailyGoalController extends Controller
 
         // Daily Goals untuk KPI Aktif
         $currentGoalsData = $getGoalsForCustomer($currentKpiId);
-        $dailyGoals = $currentGoalsData->map(function($goal) use ($customer, $user) {
-            $progress = Progress::where('daily_goal_id', $goal->id)
-                ->where('customer_id', $customer->id)
-                ->where('user_id', $user->id)
-                ->orderBy('created_at', 'desc')
-                ->first();
+        $dailyGoals = $currentGoalsData->map(function($goal) use ($customer, $user, $isPrivileged, $salesUser) {
+            $progressQuery = Progress::where('daily_goal_id', $goal->id)
+                ->where('customer_id', $customer->id);
+
+            // Untuk admin/manager, gunakan user_id sales pemilik customer; untuk sales biasa pakai user login
+            if ($isPrivileged) {
+                if ($salesUser) {
+                    $progressQuery->where('user_id', $salesUser->id);
+                }
+            } else {
+                $progressQuery->where('user_id', $user->id);
+            }
+
+            $progress = $progressQuery->orderBy('created_at', 'desc')->first();
 
             $userInput = '';
             if ($progress) {
@@ -273,10 +316,7 @@ class DailyGoalController extends Controller
             $summaryRequired = !$summaryExists;
         }
 
-        // Data user/sales yang menangani customer ini
-        $salesUser = $customer->user;
-
-return [
+        return [
             'customer' => [
                 'id'           => $customer->id,
                 'pic'          => $customer->pic,
