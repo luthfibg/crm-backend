@@ -107,12 +107,13 @@ class DailyGoalController extends Controller
     $this->autoDeactivateOldAfterSalesProspects();
 
     // Ambil customer dengan relasi KPI saat ini (exclude completed sales)
-    $query = \App\Models\Customer::with(['kpi', 'products'])
+    // Sekaligus eager-load relasi user agar admin bisa melihat nama sales
+    $query = \App\Models\Customer::with(['kpi', 'products', 'user'])
         ->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])
         ->where('status', '!=', 'Completed');
     $customers = ($user->role === 'administrator') ?
         $query->get() :
-        $user->customers()->with(['kpi', 'products'])->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
+        $user->customers()->with(['kpi', 'products', 'user'])->whereIn('status', ['New', 'Warm Prospect', 'Hot Prospect', 'Deal Won', 'After Sales'])->where('status', '!=', 'Completed')->get();
 
     // 1. Ambil Master Daily Goals (Gunakan WHERE IN kpi_id agar lebih cepat)
     $allDailyGoals = DailyGoal::where('user_id', $user->id)
@@ -272,6 +273,9 @@ class DailyGoalController extends Controller
             $summaryRequired = !$summaryExists;
         }
 
+        // Data user/sales yang menangani customer ini
+        $salesUser = $customer->user;
+
 return [
             'customer' => [
                 'id'           => $customer->id,
@@ -286,6 +290,15 @@ return [
                 // Include products as array of objects
                 'products' => $this->getCustomerProducts($customer),
             ],
+            // Informasi user/sales untuk kebutuhan tampilan admin di frontend
+            'user' => $salesUser ? [
+                'id'    => $salesUser->id,
+                'name'  => $salesUser->name,
+                'email' => $salesUser->email,
+                'role'  => $salesUser->role,
+            ] : null,
+            // Alias langsung nama sales untuk mempermudah konsumsi di frontend lama
+            'sales_name' => $salesUser->name ?? null,
             'kpi' => $currentKpi ? $currentKpi->only(['id','code','description','weight_point']) : null,
             'kpi_progress_history' => $kpiProgress,
             'daily_goals' => $dailyGoals,
