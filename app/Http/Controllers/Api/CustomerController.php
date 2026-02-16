@@ -273,6 +273,75 @@ class CustomerController extends Controller
     }
 
     /**
+     * Hand over a customer/prospect from one sales to another.
+     * Only administrator can perform this action and target user must have role 'sales'.
+     */
+    public function handover(Request $request, $customerId)
+    {
+        $actor = $request->user();
+        if (! $actor) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        if ($actor->role !== 'administrator') {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'new_user_id' => 'required|integer|exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = $validator->validated();
+
+        $customer = Customer::findOrFail($customerId);
+
+        // Pastikan target user adalah sales aktif (ber-role sales)
+        $newUser = User::where('id', $data['new_user_id'])
+            ->where('role', 'sales')
+            ->first();
+
+        if (! $newUser) {
+            return response()->json([
+                'status' => false,
+                'message' => 'User tujuan harus berperan sebagai sales yang aktif',
+            ], 422);
+        }
+
+        // Jika user sama, tidak perlu melakukan apa-apa
+        if ((int) $customer->user_id === (int) $newUser->id) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Prospek ini sudah dimiliki oleh sales tersebut',
+            ], 400);
+        }
+
+        $oldUserId = $customer->user_id;
+        $customer->user_id = $newUser->id;
+        $customer->save();
+
+        \Log::info('Customer handed over to another sales', [
+            'customer_id' => $customer->id,
+            'from_user_id' => $oldUserId,
+            'to_user_id' => $newUser->id,
+            'by_admin_id' => $actor->id,
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Prospek berhasil di-hand over ke sales baru',
+            'customer' => new CustomerResource($customer->fresh()),
+        ]);
+    }
+
+    /**
      * Skip customer to next KPI (force advance)
      */
     public function skipKpi(Request $request, $customerId)

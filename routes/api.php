@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('customers/available-for-prospect', [CustomerController::class, 'getAvailableForProspect']);
     Route::get('customers/sales-history', [CustomerController::class, 'getSalesHistory']);
     Route::post('customers/{customer}/convert-to-prospect', [CustomerController::class, 'convertToProspect']);
+    Route::post('customers/{customer}/handover', [CustomerController::class, 'handover']);
     Route::resource('customers', CustomerController::class);
     Route::resource('kpis', KPIController::class);
     Route::resource('daily-goals', DailyGoalController::class);
